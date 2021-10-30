@@ -356,7 +356,7 @@ inline bool read_int(istream& stream,
     if (!read_uint(stream, uvalue)) return false;
     if (neg) {
         if (uvalue > absu(lbound)) return false;
-    } else if (uvalue > ubound) return false;
+    } else if (uvalue > absu(ubound)) return false;
 
     out_value = (int_type)uvalue * (neg ? -1 : 1);
     return true;
@@ -517,7 +517,7 @@ struct node_t
     node_t(node_type type) : 
         type(type), has_children(false)
     {}
-    inline bool type_is_any_of(unsigned expected_types)
+    inline bool type_is_any_of(unsigned expected_types) const
     {
         assert(type != 0 && expected_types != 0);
         for (auto i = 0; i < NODE_NTYPES; ++i) {
@@ -549,7 +549,7 @@ inline std::string node_desc(unsigned node_types)
     return desc;
 }
 
-void top_node_assert(std::stack<node_t>& nodes, unsigned allowed_types)
+void top_node_assert(const std::stack<node_t>& nodes, unsigned allowed_types)
 {
     if (!nodes.top().type_is_any_of(allowed_types))
         throw std::logic_error("Expected node: " + node_desc(allowed_types));
@@ -629,9 +629,7 @@ private:
         read_string_variant(std::size_t* out_startpos = nullptr);
 
 public:
-    raw_reader(istream& stream) :
-        stream(stream)
-    {}
+    raw_reader(istream& stream) : stream(stream) {}
     virtual ~raw_reader(void) {}
 
     inline std::int_least32_t read_int32(void);
@@ -898,8 +896,8 @@ template <typename ostream>
 void writer<ostream>::write_key(const char* key)
 {
     internal::top_node_assert(nodes, internal::NODE_object);
-
     if (!key) throw std::logic_error("object key is null");
+
     maybe_write_separator();
     rwr.write_string(key);
 
@@ -970,9 +968,11 @@ template <typename value_type>
 void writer<ostream>::write_key_value(const char* key, value_type&& value)
 {
     internal::top_node_assert(nodes, internal::NODE_object);
-    if (nodes.top().has_children) rwr.write_item_separator();
-
     if (!key) throw std::logic_error("object key is null");
+
+    if (nodes.top().has_children) 
+        rwr.write_item_separator();
+ 
     rwr.write_string(key);
     rwr.write_key_separator();
     rwr.write(std::forward<value_type>(value));
