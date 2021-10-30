@@ -1,0 +1,12 @@
+# Visual studio
+.vs/
+Debug/
+Release/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# testing
+main.cpp
+test.json
