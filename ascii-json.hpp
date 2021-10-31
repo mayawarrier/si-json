@@ -2,11 +2,6 @@
 #ifndef ASCII_JSON_HPP
 #define ASCII_JSON_HPP
 
-#if defined(_MSC_VER) && !defined(_CRT_SECURE_NO_WARNINGS)
-#define _CRT_SECURE_NO_WARNINGS
-#define ASCII_JSON_UNDEF_CRT_SECURE
-#endif
-
 #include <cstddef>
 #include <cassert>
 #include <cctype>
@@ -33,11 +28,30 @@ namespace internal
 {
 using unique_file_ptr = std::unique_ptr<std::FILE, void(*)(std::FILE*)>;
 
-inline unique_file_ptr make_unique_fptr(const char* filepath, const char* mode)
+inline unique_file_ptr make_unique_file_ptr(const char* filepath, const char* mode)
 {
+#ifdef _MSC_VER
+    std::FILE* file;
+    bool err = fopen_s(&file, filepath, mode) != 0;
+#else
+    assert(filepath && mode);
     std::FILE* file = std::fopen(filepath, mode);
-    if (!file) throw std::runtime_error(std::string("Could not open ") + filepath);
+    bool err = !file;
+#endif
+    if (err) throw std::runtime_error(std::string("Could not open ") + filepath);
     return { file, [](std::FILE* fp) { std::fclose(fp); } };
+}
+
+inline std::size_t fread(void* buffer, std::size_t bufsize, 
+    std::size_t elemsize, std::size_t count, std::FILE* stream)
+{
+#ifdef _MSC_VER
+    return fread_s(buffer, bufsize, elemsize, count, stream);
+#else
+    (void)bufsize;
+    assert(buffer && stream && bufsize >= count * elemsize);
+    return std::fread(buffer, elemsize, count, stream);
+#endif
 }
 }
 
@@ -64,7 +78,8 @@ private:
         else if (!buf_eof)
         {
             // fill buffer 
-            std::size_t nread = std::fread(buf.get(), sizeof(char), bufsize, file.get());
+            std::size_t nread = internal::fread(buf.get(), 
+                bufsize, sizeof(char), bufsize, file.get());
             if (std::ferror(file.get()))
                 throw std::runtime_error(std::string("Failed to read from ") + filepath);
 
@@ -83,7 +98,7 @@ private:
 public:
     ifstream(const char filepath[], std::size_t bufsize) :
         filepath(filepath), bufsize(bufsize),
-        file(internal::make_unique_fptr(filepath, "rb")),
+        file(internal::make_unique_file_ptr(filepath, "rb")),
         buf(new char[bufsize]), 
         buf_last_read(buf.get()), buf_eof(false),
         current(buf.get()), posn(SIZE_MAX)
@@ -124,7 +139,7 @@ private:
     
 public:
     ofstream(const char filepath[], std::size_t bufsize) :
-        file(internal::make_unique_fptr(filepath, "wb")),
+        file(internal::make_unique_file_ptr(filepath, "wb")),
         buf(new char[bufsize]), buf_end(buf.get() + bufsize),
         current(buf.get()), filepath(filepath)
     {
@@ -1314,10 +1329,5 @@ void raw_writer<ostream>::write(value_type&& value)
     internal::rw::write(*this, std::forward<value_type>(value)); 
 }
 }
-
-#ifdef ASCII_JSON_UNDEF_CRT_SECURE
-#undef _CRT_SECURE_NO_WARNINGS
-#undef ASCII_JSON_UNDEF_CRT_SECURE
-#endif
 
 #endif
