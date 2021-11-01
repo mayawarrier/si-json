@@ -150,7 +150,7 @@ public:
     ofstream& operator=(const ofstream&) = delete;
     ofstream& operator=(ofstream&&) = default;   
 
-    // Commit as-yet-unwritten data to target.
+    // Commit data to target.
     inline void flush(void)
     {
         const std::size_t towrite = (std::size_t)(current - buf.get());
@@ -181,7 +181,7 @@ private:
     const char* end;
     const char* current;
 public:
-    imstream(char* src, std::size_t size) :
+    imstream(const char* src, std::size_t size) :
         begin(src), end(src + size),
         current(src)
     {}
@@ -225,7 +225,7 @@ public:
     omstream& operator=(const omstream&) = delete;
     omstream& operator=(omstream&&) = default;
 
-    // Commit as-yet-unwritten data to target.
+    // Commit data to target.
     inline void flush(void) const noexcept {}
 
     // Write a character.
@@ -248,8 +248,78 @@ public:
     virtual ~omstream(void) {}
 };
 
+// Wraps a std::string as an output stream.
+class sstream
+{
+private:
+    std::string str;
+public:
+    sstream(std::size_t init_capacity = 0)
+    { str.reserve(init_capacity); }
+
+    // Commit data to target.
+    inline void flush(void) const noexcept {};
+    // Write a character.
+    inline void put(char c) { str.push_back(c); }
+
+    // Get string.
+    inline const std::string& get(void) const { return str; }
+    // Move string.
+    inline std::string&& move(void) { return std::move(str); }
+};
+
 namespace internal
 {
+class cstrbuilder : public omstream
+{
+public:
+    cstrbuilder(std::size_t init_capacity = 0) :
+        omstream(init_capacity)
+    {}
+
+    cstrbuilder& operator=(const cstrbuilder&) = delete;
+    cstrbuilder& operator=(cstrbuilder&&) = default;
+
+    // Get null-terminated string.
+    inline const char* get(void) {
+        put('\0'); len--;
+        return buf.get();
+    }
+    // Release (ownership of) string.
+    inline char* release(void) {
+        set_cap(len + 1); put('\0');
+        return buf.release();
+    }
+
+    // string-like interface
+    inline void push_back(char c) { put(c); }
+    inline void reserve(std::size_t new_cap) {
+        if (new_cap > cap)
+            set_cap(new_cap);
+    }
+};
+
+template <typename str_type>
+class string_or_null
+{
+private:
+    bool has_string;
+    str_type string;
+public:
+    string_or_null(std::nullptr_t) :
+        has_string(false)
+    {}
+    string_or_null(str_type&& string) :
+        string(std::move(string)), has_string(true)
+    {}
+
+    inline bool is_string(void) const noexcept { return has_string; }
+    inline bool is_null(void) const noexcept { return !has_string; }
+
+    inline str_type& get_string(void) { assert(has_string); return string; }
+    inline str_type&& move_string(void) { assert(has_string); return std::move(string); }
+};
+
 template <typename T>
 struct is_nonbool_integral : std::integral_constant<bool,
     std::is_integral<T>::value && !std::is_same<T, bool>::value>
@@ -263,19 +333,6 @@ template <typename T>
 struct is_nb_unsigned_integral : std::integral_constant<bool,
     is_nonbool_integral<T>::value && std::is_unsigned<T>::value>
 {};
-
-// T(&)[] -> T*
-template <typename T>
-struct decay_arrayref
-{
-    using rref_t = typename std::remove_reference<T>::type;
-    using type = typename std::conditional<
-            std::is_array<rref_t>::value,
-            typename std::remove_extent<rref_t>::type*, T
-    >::type;
-};
-template <typename T>
-using decay_arrayref_t = typename decay_arrayref<T>::type;
 
 // Absolute value of a signed integer.
 // Safe to use with signed min().
@@ -304,9 +361,16 @@ inline bool is_digit(char c)
 {
     return c >= '0' && c <= '9';
 }
+
 inline void trim_front(std::string& str, const char* target)
 {
     auto off = str.find(target);
+    if (off != std::string::npos)
+        str.erase(off, std::strlen(target));
+}
+inline void trim_back(std::string& str, const char* target)
+{
+    auto off = str.rfind(target);
     if (off != std::string::npos)
         str.erase(off, std::strlen(target));
 }
@@ -588,55 +652,18 @@ void pop_node_assert(std::stack<node_t>& nodes, node_type expected)
     nodes.pop();
 }
 
-class cstr_builder : public omstream
+// T(&)[] -> T*
+template <typename T>
+struct decay_arrayref
 {
-public:
-    cstr_builder(std::size_t init_capacity = 0) :
-        omstream(init_capacity)
-    {}
-
-    cstr_builder& operator=(const cstr_builder&) = delete;
-    cstr_builder& operator=(cstr_builder&&) = default;
-
-    // Get null-terminated string.
-    inline const char* get(void) {
-        put('\0'); len--;
-        return buf.get();
-    }
-    // Release (ownership of) string.
-    inline char* release(void) {
-        set_cap(len + 1); put('\0');
-        return buf.release();
-    }
-
-    // string-like interface
-    inline void push_back(char c) { put(c); }
-    inline void reserve(std::size_t new_cap) {
-        if (new_cap > cap)
-            set_cap(new_cap);
-    }
+    using rref_t = typename std::remove_reference<T>::type;
+    using type = typename std::conditional<
+        std::is_array<rref_t>::value,
+        typename std::remove_extent<rref_t>::type*, T
+    >::type;
 };
-
-template <typename str_type>
-class string_or_null
-{
-private:
-    bool has_string;
-    str_type string;
-public:
-    string_or_null(std::nullptr_t) :
-        has_string(false)
-    {}
-    string_or_null(str_type&& string) :
-        string(std::move(string)), has_string(true)
-    {}
-
-    inline bool is_string(void) const noexcept { return has_string; }
-    inline bool is_null(void) const noexcept { return !has_string; }
-
-    inline str_type& get_string(void) { assert(has_string); return string; }
-    inline str_type&& move_string(void) { assert(has_string); return std::move(string); }
-};
+template <typename T>
+using decay_arrayref_t = typename decay_arrayref<T>::type;
 
 // forward decl
 class rw;
@@ -671,7 +698,7 @@ public:
     inline void read_null(void);
 
     // Read null or null-terminated string.
-    // String is allocated with new[].
+    // String must be delete[]d after usage.
     inline char* read_cstring(void);
     // Read non-null string.
     inline std::string read_string(void);
@@ -687,7 +714,8 @@ public:
     template <typename value_type>
     inline value_type read(void);
 
-    // Skip whitespace.
+    // Skip whitespace. 
+    // Called at the beginning of every read.
     inline void skip_ws(void) { internal::skip_ws(stream); }
 
     // Synonym for stream.peek().
@@ -762,7 +790,7 @@ public:
     inline void end_array(void);
 
     // Read object key as null-terminated string.
-    // String is allocated with new[].
+    // String must be delete[]d after usage.
     inline char* read_key_cstr(void);
 
     // Read object key.
@@ -840,6 +868,51 @@ public:
         try { flush(); } catch (...) {}
     }
 };
+
+namespace internal
+{
+template <typename value_type>
+std::string to_string_impl(value_type&& value)
+{
+    sstream sb(4);
+    raw_writer<sstream> writer(sb);
+    writer.write(std::forward<value_type>(value));
+    writer.flush();
+
+    std::string str = sb.move();
+    if (std::is_same<value_type, char*>::value ||
+        std::is_same<value_type, const char*>::value)
+    {
+        trim_front(str, "'");
+        trim_back(str, "'");
+    }
+    return str;
+}
+}
+
+// Convert value to (escaped) string.
+template <typename value_type>
+std::string to_string(value_type&& value)
+{
+    return internal::to_string_impl(
+        std::forward<internal::decay_arrayref_t<value_type>>(value));
+}
+
+// Convert string to (unescaped) value.
+template <typename value_type>
+value_type from_string(const char* str, std::size_t len)
+{
+    imstream in(str, len);
+    raw_reader<imstream> reader(in);
+    return reader.read<value_type>();
+}
+
+// Convert string to (unescaped) value. 
+template <typename value_type>
+value_type from_string(const std::string& str)
+{
+    return from_string<value_type>(str.c_str(), str.length());
+}
 
 template <typename ostream>
 void writer<ostream>::maybe_write_separator(void)
@@ -1226,7 +1299,7 @@ std::string raw_reader<istream>::read_string(void)
 template <typename istream>
 char* raw_reader<istream>::read_cstring(void)
 {
-    auto maybe_string = read_string_variant<internal::cstr_builder>();
+    auto maybe_string = read_string_variant<internal::cstrbuilder>();
     return maybe_string.is_string() ?
         maybe_string.get_string().release() : nullptr;
 }
