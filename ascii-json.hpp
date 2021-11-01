@@ -32,7 +32,7 @@ inline unique_file_ptr make_unique_file_ptr(const char* filepath, const char* mo
 {
 #ifdef _MSC_VER
     std::FILE* file;
-    bool err = fopen_s(&file, filepath, mode) != 0;
+    bool err = ::fopen_s(&file, filepath, mode) != 0;
 #else
     assert(filepath && mode);
     std::FILE* file = std::fopen(filepath, mode);
@@ -46,7 +46,7 @@ inline std::size_t fread(void* buffer, std::size_t bufsize,
     std::size_t elemsize, std::size_t count, std::FILE* stream)
 {
 #ifdef _MSC_VER
-    return fread_s(buffer, bufsize, elemsize, count, stream);
+    return ::fread_s(buffer, bufsize, elemsize, count, stream);
 #else
     (void)bufsize;
     assert(buffer && stream && bufsize >= count * elemsize);
@@ -256,19 +256,32 @@ struct is_nonbool_integral : std::integral_constant<bool,
 {};
 
 template <typename T>
-struct is_signed_integral : std::integral_constant<bool,
+struct is_nb_signed_integral : std::integral_constant<bool,
     is_nonbool_integral<T>::value && std::is_signed<T>::value>
 {};
 template <typename T>
-struct is_unsigned_integral : std::integral_constant<bool,
+struct is_nb_unsigned_integral : std::integral_constant<bool,
     is_nonbool_integral<T>::value && std::is_unsigned<T>::value>
 {};
+
+// T(&)[] -> T*
+template <typename T>
+struct decay_arrayref
+{
+    using rref_t = typename std::remove_reference<T>::type;
+    using type = typename std::conditional<
+            std::is_array<rref_t>::value,
+            typename std::remove_extent<rref_t>::type*, T
+    >::type;
+};
+template <typename T>
+using decay_arrayref_t = typename decay_arrayref<T>::type;
 
 // Absolute value of a signed integer.
 // Safe to use with signed min().
 template <typename T, 
     typename uT = typename std::make_unsigned<T>::type, 
-    typename = typename std::enable_if<is_signed_integral<T>::value>::type>
+    typename = typename std::enable_if<is_nb_signed_integral<T>::value>::type>
 uT absu(T value) 
 {
     // should be true on sane archs :)
@@ -658,7 +671,7 @@ public:
     inline void read_null(void);
 
     // Read null or null-terminated string.
-    // String must be delete[]d after usage.
+    // String is allocated with new[].
     inline char* read_cstring(void);
     // Read non-null string.
     inline std::string read_string(void);
@@ -749,7 +762,7 @@ public:
     inline void end_array(void);
 
     // Read object key as null-terminated string.
-    // String must be delete[]d after usage.
+    // String is allocated with new[].
     inline char* read_key_cstr(void);
 
     // Read object key.
@@ -778,6 +791,10 @@ private:
     std::stack<internal::node_t> nodes;
 
     inline void maybe_write_separator(void);
+    template <typename value_type>
+    inline void write_value_impl(value_type&& value);
+    template <typename value_type>
+    inline void write_key_value_impl(const char* key, value_type&& value);
 
 public:
     writer(ostream& stream) : rwr{ stream }
@@ -795,16 +812,24 @@ public:
 
     // Write value.
     template <typename value_type>
-    inline void write_value(value_type&& value);
-
+    inline void write_value(value_type&& value)
+    { 
+        write_value_impl(std::forward<internal::decay_arrayref_t<value_type>>(value)); 
+    }
     // Write object key-value pair.
     template <typename value_type>
-    inline void write_key_value(const char* key, value_type&& value);
-
+    inline void write_key_value(const char* key, value_type&& value) 
+    { 
+        write_key_value_impl(key, 
+            std::forward<internal::decay_arrayref_t<value_type>>(value)); 
+    }
     // Write object key-value pair.
     template <typename value_type>
-    inline void write_key_value(const std::string& key, value_type&& value)
-    { write_key_value(key.c_str(), std::forward<value_type>(value)); }
+    inline void write_key_value(const std::string& key, value_type&& value) 
+    { 
+        write_key_value_impl(key.c_str(), 
+            std::forward<internal::decay_arrayref_t<value_type>>(value)); 
+    }
 
     // Synonym for stream.flush().
     inline void flush(void) { rwr.flush(); }
@@ -952,7 +977,7 @@ std::string reader<istream>::read_key(void)
 
 template <typename ostream>
 template <typename value_type>
-void writer<ostream>::write_value(value_type&& value)
+void writer<ostream>::write_value_impl(value_type&& value)
 {
     internal::top_node_assert(nodes, ~internal::NODE_object);
 
@@ -980,7 +1005,7 @@ value_type reader<istream>::read_value(void)
 
 template <typename ostream>
 template <typename value_type>
-void writer<ostream>::write_key_value(const char* key, value_type&& value)
+void writer<ostream>::write_key_value_impl(const char* key, value_type&& value)
 {
     internal::top_node_assert(nodes, internal::NODE_object);
     if (!key) throw std::logic_error("object key is null");
@@ -1257,11 +1282,11 @@ private:
 
 public:
     template <typename istream, typename T,
-        typename std::enable_if<is_signed_integral<T>::value, int>::type = 0>
+        typename std::enable_if<is_nb_signed_integral<T>::value, int>::type = 0>
     static inline T read(raw_reader<istream>& r) { return read_int_impl<istream, T>(r.stream); }
 
     template <typename istream, typename T,
-        typename std::enable_if<is_unsigned_integral<T>::value, int>::type = 0>
+        typename std::enable_if<is_nb_unsigned_integral<T>::value, int>::type = 0>
     static inline T read(raw_reader<istream>& r) { return read_uint_impl<istream, T>(r.stream); }
 
     template <typename istream, typename T,
@@ -1276,11 +1301,12 @@ public:
         typename std::enable_if<std::is_same<T, bool>::value, int>::type = 0>
     static inline T read(raw_reader<istream>& r) { return r.read_bool(); }
 
-    // no overload for char* as it might leak. Use reader.read_cstring() instead.
+    template <typename istream, typename T,
+        typename std::enable_if<std::is_same<T, char*>::value, int>::type = 0>
+    static inline T read(raw_reader<istream>& r) { return r.read_cstring(); }
 
     template <typename istream, typename T,
-        typename std::enable_if<
-        std::is_same<typename std::decay<T>::type, std::string>::value, int>::type = 0>
+        typename std::enable_if<std::is_same<T, std::string>::value, int>::type = 0>
     static inline T read(raw_reader<istream>& r) { return r.read_string(); }
 
     template <typename istream, typename T,
@@ -1288,11 +1314,11 @@ public:
     static inline T read(raw_reader<istream>& r) { r.read_null(); return nullptr; }
 
     template <typename ostream, typename T,
-        typename std::enable_if<is_signed_integral<T>::value, int>::type = 0>
+        typename std::enable_if<is_nb_signed_integral<T>::value, int>::type = 0>
     static inline void write(raw_writer<ostream>& w, T val) { write_int(w.stream, val); }
 
     template <typename ostream, typename T,
-        typename std::enable_if<is_unsigned_integral<T>::value, int>::type = 0>
+        typename std::enable_if<is_nb_unsigned_integral<T>::value, int>::type = 0>
     static inline void write(raw_writer<ostream>& w, T val) { write_uint(w.stream, val); }
 
     template <typename ostream>
@@ -1326,7 +1352,8 @@ template <typename ostream>
 template <typename value_type> 
 void raw_writer<ostream>::write(value_type&& value) 
 {
-    internal::rw::write(*this, std::forward<value_type>(value)); 
+    internal::rw::write(*this, 
+        std::forward<internal::decay_arrayref_t<value_type>>(value)); 
 }
 }
 
