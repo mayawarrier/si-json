@@ -263,9 +263,9 @@ public:
     inline void put(char c) { str.push_back(c); }
 
     // Get string.
-    inline const std::string& get(void) const { return str; }
+    inline const std::string& get_str(void) const { return str; }
     // Move string.
-    inline std::string&& move(void) { return std::move(str); }
+    inline std::string&& move_str(void) { return std::move(str); }
 };
 
 namespace internal
@@ -357,10 +357,8 @@ inline bool is_any_of(const char* chars, char val)
     }
     return false;
 }
-inline bool is_digit(char c)
-{
-    return c >= '0' && c <= '9';
-}
+
+inline bool is_digit(char c) { return c >= '0' && c <= '9'; }
 
 inline void trim_front(std::string& str, const char* target)
 {
@@ -597,18 +595,44 @@ enum node_type
     NODE_array = 1 << 0,
     NODE_object = 1 << 1,
     NODE_key = 1 << 2,
-    NODE_document = 1 << 3,
-    NODE_NTYPES = 4
+    NODE_value = 1 << 3,
+    NODE_document = 1 << 4,
+    NODE_NTYPES = 5
 };
 
-struct node_t
+class node_t
 {
+    static inline std::string desc(unsigned node_types)
+    {
+        std::string desc;
+        for (auto i = 0; i < NODE_NTYPES; ++i)
+        {
+            int type = (node_types & (0x1 << i));
+            if (type == 0) continue;
+
+            switch ((node_type)type)
+            {
+                case NODE_array: desc += ", array"; break;
+                case NODE_object: desc += ", object"; break;
+                case NODE_key: desc += ", key"; break;
+                case NODE_value: desc += ", value"; break;
+                case NODE_document: desc += ", document"; break;
+                default: assert(false);
+            }
+        }
+        trim_front(desc, ", ");
+        return desc;
+    }
+
+private:
+    bool m_has_children;
+public:
     const node_type type;
-    bool has_children;
 
     node_t(node_type type) : 
-        type(type), has_children(false)
+        type(type), m_has_children(false)
     {}
+
     inline bool type_is_any_of(unsigned expected_types) const
     {
         assert(type != 0 && expected_types != 0);
@@ -618,38 +642,33 @@ struct node_t
         }
         return false;
     }
+
+    inline void assert_type(unsigned allowed_types)
+    {
+        if (!type_is_any_of(allowed_types))
+            throw std::logic_error("Expected node: " + node_t::desc(allowed_types));
+    }
+
+    template <unsigned types> inline void assert_rule(void);
+
+    template <> void assert_rule<NODE_array>(void) { assert_type(~NODE_object); }
+    template <> void assert_rule<NODE_object>(void) { assert_type(~NODE_object); }
+    template <> void assert_rule<NODE_key>(void) { assert_type(NODE_object); }
+    template <> void assert_rule<NODE_value>(void) { assert_type(~NODE_object); }
+    template <> void assert_rule<NODE_key | NODE_value>(void) { assert_type(NODE_object); }
+
+    inline bool has_children(void) const noexcept { return m_has_children; }
+
+    template <unsigned types> 
+    static inline void add_child(std::stack<node_t>& nodes)
+    { nodes.top().m_has_children = true; }
 };
 
-inline std::string node_desc(unsigned node_types)
+template <> void node_t::add_child<NODE_value>(std::stack<node_t>& nodes)
 {
-    std::string desc;
-    for (auto i = 0; i < NODE_NTYPES; ++i)
-    {
-        int type = (node_types & (0x1 << i));
-        if (type == 0) continue;
-
-        switch ((node_type)type)
-        {
-            case NODE_array: desc += ", array"; break;
-            case NODE_object: desc += ", object"; break;
-            case NODE_key: desc += ", key"; break;
-            case NODE_document: desc += ", document"; break;
-            default: assert(false);
-        }
-    }
-    trim_front(desc, ", ");
-    return desc;
-}
-
-void top_node_assert(const std::stack<node_t>& nodes, unsigned allowed_types)
-{
-    if (!nodes.top().type_is_any_of(allowed_types))
-        throw std::logic_error("Expected node: " + node_desc(allowed_types));
-}
-void pop_node_assert(std::stack<node_t>& nodes, node_type expected)
-{
-    top_node_assert(nodes, expected);
-    nodes.pop();
+    if (nodes.top().type == internal::NODE_key)
+        nodes.pop();
+    else nodes.top().m_has_children = true;
 }
 
 // T(&)[] -> T*
@@ -664,6 +683,12 @@ struct decay_arrayref
 };
 template <typename T>
 using decay_arrayref_t = typename decay_arrayref<T>::type;
+
+template <typename T>
+struct is_char_ptr : std::integral_constant<bool,
+    std::is_same<typename std::remove_cv<T>::type, char*>::value ||
+    std::is_same<typename std::remove_cv<T>::type, const char*>::value>
+{};
 
 // forward decl
 class rw;
@@ -697,11 +722,12 @@ public:
     inline bool read_bool(void);
     inline void read_null(void);
 
-    // Read null or null-terminated string.
-    // String must be delete[]d after usage.
-    inline char* read_cstring(void);
     // Read non-null string.
     inline std::string read_string(void);
+
+    // Read null or null-terminated string.
+    // String is dynamically allocated.
+    inline char* read_cstring(std::size_t* out_len = nullptr);
 
     inline void read_start_object(void) { internal::skip_ws_and_read(stream, '{'); } 
     inline void read_end_object(void) { internal::skip_ws_and_read(stream, '}'); }
@@ -789,16 +815,20 @@ public:
     inline void end_object(void);
     inline void end_array(void);
 
-    // Read object key as null-terminated string.
-    // String must be delete[]d after usage.
-    inline char* read_key_cstr(void);
-
     // Read object key.
     inline std::string read_key(void);
+
+    // Read object key as null-terminated string.
+    // String is dynamically allocated.
+    inline char* read_key_cstr(std::size_t* out_len = nullptr);
 
     // Read value.
     template <typename value_type>
     inline value_type read_value(void);
+
+    // Read value as null-terminated string.
+    // String is dynamically allocated.
+    inline char* read_value_cstr(std::size_t* out_len = nullptr);
 
     // Read object key-value pair.
     template <typename value_type>
@@ -836,7 +866,7 @@ public:
     // Write object key.
     inline void write_key(const char* key);
     // Write object key.
-    inline void write_key(const std::string& key) { return write_key(key.c_str()); }
+    inline void write_key(const std::string& key) { write_key(key.c_str()); }
 
     // Write value.
     template <typename value_type>
@@ -879,9 +909,8 @@ std::string to_string_impl(value_type&& value)
     writer.write(std::forward<value_type>(value));
     writer.flush();
 
-    std::string str = sb.move();
-    if (std::is_same<value_type, char*>::value ||
-        std::is_same<value_type, const char*>::value)
+    std::string str = sb.move_str();
+    if (is_char_ptr<value_type>::value)
     {
         trim_front(str, "'");
         trim_back(str, "'");
@@ -917,7 +946,7 @@ value_type from_string(const std::string& str)
 template <typename ostream>
 void writer<ostream>::maybe_write_separator(void)
 {
-    if (nodes.top().has_children)
+    if (nodes.top().has_children())
     {
         switch (nodes.top().type)
         {
@@ -932,7 +961,7 @@ void writer<ostream>::maybe_write_separator(void)
 template <typename istream>
 void reader<istream>::maybe_read_separator(void)
 {
-    if (nodes.top().has_children)
+    if (nodes.top().has_children())
     {
         switch (nodes.top().type)
         {
@@ -948,7 +977,7 @@ void reader<istream>::maybe_read_separator(void)
 template <typename ostream>
 void writer<ostream>::start_object(void)
 {
-    internal::top_node_assert(nodes, ~internal::NODE_object);
+    nodes.top().assert_rule<internal::NODE_object>();
     maybe_write_separator();
     rwr.write_start_object();
     nodes.push({ internal::NODE_object });
@@ -956,16 +985,15 @@ void writer<ostream>::start_object(void)
 template <typename istream>
 void reader<istream>::start_object(void)
 {
-    internal::top_node_assert(nodes, ~internal::NODE_object);
+    nodes.top().assert_rule<internal::NODE_object>();
     maybe_read_separator();
     rrr.read_start_object();
     nodes.push({ internal::NODE_object });
 }
-
 template <typename ostream>
 void writer<ostream>::start_array(void)
 {
-    internal::top_node_assert(nodes, ~internal::NODE_object);
+    nodes.top().assert_rule<internal::NODE_array>();
     maybe_write_separator();
     rwr.write_start_array();
     nodes.push({ internal::NODE_array });
@@ -973,77 +1001,83 @@ void writer<ostream>::start_array(void)
 template <typename istream>
 void reader<istream>::start_array(void)
 {
-    internal::top_node_assert(nodes, ~internal::NODE_object);
+    nodes.top().assert_rule<internal::NODE_array>();
     maybe_read_separator();
     rrr.read_start_array();
     nodes.push({ internal::NODE_array });
 }
-
 template <typename ostream>
 void writer<ostream>::end_object(void)
 {
-    internal::pop_node_assert(nodes, internal::NODE_object); 
+    nodes.top().assert_type(internal::NODE_object); 
+    nodes.pop();
     rwr.write_end_object();
+    internal::node_t::add_child<internal::NODE_object>(nodes);
 }
 template <typename istream>
 void reader<istream>::end_object(void)
 {
-    internal::pop_node_assert(nodes, internal::NODE_object);
+    nodes.top().assert_type(internal::NODE_object); 
+    nodes.pop();
     rrr.read_end_object();
+    internal::node_t::add_child<internal::NODE_object>(nodes);
 }
-
 template <typename ostream>
 void writer<ostream>::end_array(void)
 {
-    internal::pop_node_assert(nodes, internal::NODE_array);
+    nodes.top().assert_type(internal::NODE_array); 
+    nodes.pop();
     rwr.write_end_array();
+    internal::node_t::add_child<internal::NODE_array>(nodes);
 }
 template <typename istream>
 void reader<istream>::end_array(void)
 {
-    internal::pop_node_assert(nodes, internal::NODE_array);
+    nodes.top().assert_type(internal::NODE_array); 
+    nodes.pop();
     rrr.read_end_array();
+    internal::node_t::add_child<internal::NODE_array>(nodes);
 }
 
 template <typename ostream>
 void writer<ostream>::write_key(const char* key)
 {
-    internal::top_node_assert(nodes, internal::NODE_object);
+    nodes.top().assert_rule<internal::NODE_key>();
     if (!key) throw std::logic_error("object key is null");
 
     maybe_write_separator();
     rwr.write_string(key);
 
-    nodes.top().has_children = true;
+    internal::node_t::add_child<internal::NODE_key>(nodes);
     nodes.push({ internal::NODE_key });
-}
-
-template <typename istream>
-char* reader<istream>::read_key_cstr(void)
-{
-    internal::top_node_assert(nodes, internal::NODE_object);
-
-    maybe_read_separator();
-    rrr.skip_ws();
-    std::size_t startpos = rrr.pos();
-    char* str = rrr.read_cstring();
-    if (str == nullptr) 
-        throw internal::parse_err(startpos, "non-null string");
-
-    nodes.top().has_children = true;
-    nodes.push({ internal::NODE_key });
-    return str;
 }
 
 template <typename istream>
 std::string reader<istream>::read_key(void)
 {
-    internal::top_node_assert(nodes, internal::NODE_object);
+    nodes.top().assert_rule<internal::NODE_key>();
 
     maybe_read_separator();
     std::string str = rrr.read_string();
 
-    nodes.top().has_children = true;
+    internal::node_t::add_child<internal::NODE_key>(nodes);
+    nodes.push({ internal::NODE_key });
+    return str;
+}
+
+template <typename istream>
+char* reader<istream>::read_key_cstr(std::size_t* out_len)
+{
+    nodes.top().assert_rule<internal::NODE_key>();
+
+    maybe_read_separator();
+    rrr.skip_ws();
+    std::size_t startpos = rrr.pos();
+    char* str = rrr.read_cstring(out_len);
+    if (str == nullptr)
+        throw internal::parse_err(startpos, "non-null string");
+
+    internal::node_t::add_child<internal::NODE_key>(nodes);
     nodes.push({ internal::NODE_key });
     return str;
 }
@@ -1052,27 +1086,36 @@ template <typename ostream>
 template <typename value_type>
 void writer<ostream>::write_value_impl(value_type&& value)
 {
-    internal::top_node_assert(nodes, ~internal::NODE_object);
+    nodes.top().assert_rule<internal::NODE_value>();
 
     maybe_write_separator();
     rwr.write(std::forward<value_type>(value));
 
-    if (nodes.top().type == internal::NODE_key) nodes.pop();
-    else nodes.top().has_children = true;
+    internal::node_t::add_child<internal::NODE_value>(nodes);
 }
 
 template <typename istream>
 template <typename value_type>
 value_type reader<istream>::read_value(void)
 {
-    internal::top_node_assert(nodes, ~internal::NODE_object);
+    nodes.top().assert_rule<internal::NODE_value>();
 
     maybe_read_separator();
     value_type value = rrr.read<value_type>();
 
-    if (nodes.top().type == internal::NODE_key) nodes.pop();
-    else nodes.top().has_children = true;
+    internal::node_t::add_child<internal::NODE_value>(nodes);
+    return value;
+}
 
+template <typename istream>
+char* reader<istream>::read_value_cstr(std::size_t* out_len)
+{
+    nodes.top().assert_rule<internal::NODE_value>();
+
+    maybe_read_separator();
+    char* value = rrr.read_cstring(out_len);
+
+    internal::node_t::add_child<internal::NODE_value>(nodes);
     return value;
 }
 
@@ -1080,32 +1123,34 @@ template <typename ostream>
 template <typename value_type>
 void writer<ostream>::write_key_value_impl(const char* key, value_type&& value)
 {
-    internal::top_node_assert(nodes, internal::NODE_object);
+    nodes.top().assert_rule<internal::NODE_key | internal::NODE_value>();
     if (!key) throw std::logic_error("object key is null");
 
-    if (nodes.top().has_children) 
+    if (nodes.top().has_children()) 
         rwr.write_item_separator();
  
     rwr.write_string(key);
     rwr.write_key_separator();
     rwr.write(std::forward<value_type>(value));
 
-    nodes.top().has_children = true;
+    internal::node_t::add_child<internal::NODE_key | internal::NODE_value>(nodes);
 }
 
 template <typename istream>
 template <typename value_type>
 std::pair<std::string, value_type> reader<istream>::read_key_value(void)
 {
-    internal::top_node_assert(nodes, internal::NODE_object);
-    if (nodes.top().has_children) rrr.read_item_separator();
+    nodes.top().assert_rule<internal::NODE_key | internal::NODE_value>();
+
+    if (nodes.top().has_children()) 
+        rrr.read_item_separator();
 
     std::pair<std::string, value_type> ret; // NRVO
     ret.first = rrr.read_string();
     rrr.read_key_separator();
     ret.second = rrr.read<value_type>();
 
-    nodes.top().has_children = true;
+    internal::node_t::add_child<internal::NODE_key | internal::NODE_value>(nodes);
     return ret;
 }
 
@@ -1297,11 +1342,16 @@ std::string raw_reader<istream>::read_string(void)
 }
 
 template <typename istream>
-char* raw_reader<istream>::read_cstring(void)
+char* raw_reader<istream>::read_cstring(std::size_t* out_len)
 {
     auto maybe_string = read_string_variant<internal::cstrbuilder>();
-    return maybe_string.is_string() ?
-        maybe_string.get_string().release() : nullptr;
+    if (maybe_string.is_string())
+    {
+        auto& sb = maybe_string.get_string();
+        if (out_len) out_len = sb.length();
+        return sb.release();
+    }   
+    else return nullptr;
 }
 
 template <typename ostream>
@@ -1375,11 +1425,8 @@ public:
     static inline T read(raw_reader<istream>& r) { return r.read_bool(); }
 
     template <typename istream, typename T,
-        typename std::enable_if<std::is_same<T, char*>::value, int>::type = 0>
-    static inline T read(raw_reader<istream>& r) { return r.read_cstring(); }
-
-    template <typename istream, typename T,
-        typename std::enable_if<std::is_same<T, std::string>::value, int>::type = 0>
+        typename std::enable_if<std::is_same<typename 
+        std::remove_cv<T>::type, std::string>::value, int>::type = 0>
     static inline T read(raw_reader<istream>& r) { return r.read_string(); }
 
     template <typename istream, typename T,
@@ -1418,6 +1465,9 @@ template <typename istream>
 template <typename value_type>
 value_type raw_reader<istream>::read(void)
 {
+    static_assert(!internal::is_char_ptr<value_type>::value,
+        "Templated read does not support C-strings. "
+        "Use std::string or call read_cstring() instead.");
     return internal::rw::read<istream, value_type>(*this);
 }
 
@@ -1425,8 +1475,7 @@ template <typename ostream>
 template <typename value_type> 
 void raw_writer<ostream>::write(value_type&& value) 
 {
-    internal::rw::write(*this, 
-        std::forward<internal::decay_arrayref_t<value_type>>(value)); 
+    internal::rw::write(*this, std::forward<internal::decay_arrayref_t<value_type>>(value)); 
 }
 }
 
