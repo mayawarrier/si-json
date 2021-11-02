@@ -12,11 +12,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <string>
-#include <sstream>
 #include <utility>
 #include <algorithm> // std::copy
 #include <memory>
+#include <string>
+#include <sstream>
 #include <vector>
 #include <stack>
 #include <stdexcept>
@@ -805,6 +805,7 @@ private:
     std::stack<internal::node_t> nodes;
 
     inline void maybe_read_separator(void);
+    inline std::string read_key_impl(std::size_t* out_pos = nullptr);
 
 public:
     reader(istream& stream) : rrr{ stream }
@@ -816,11 +817,19 @@ public:
     inline void end_array(void);
 
     // Read object key.
-    inline std::string read_key(void);
+    inline std::string read_key(void) { return read_key_impl(); }
 
     // Read object key as null-terminated string.
     // String is dynamically allocated.
     inline char* read_key_cstr(std::size_t* out_len = nullptr);
+
+    // Read object key.
+    // Throws if key does not match expected.
+    inline void read_key(const std::string& expected);
+
+    // Read object key.
+    // Throws if key does not match expected.
+    inline void read_key(const char* expected);
 
     // Read value.
     template <typename value_type>
@@ -833,6 +842,23 @@ public:
     // Read object key-value pair.
     template <typename value_type>
     inline std::pair<std::string, value_type> read_key_value(void);
+
+    // Read object key-value pair.
+    // Throws if key does not match expected.
+    template <typename value_type>
+    inline value_type read_key_get_value(const std::string& expected) 
+    {
+        read_key(expected);
+        return read_value<value_type>();
+    }
+    // Read object key-value pair.
+    // Throws if key does not match expected.
+    template <typename value_type>
+    inline value_type read_key_get_value(const char* expected) 
+    {
+        read_key(expected);
+        return read_value<value_type>();
+    }
 
     // Synonym for stream.pos().
     inline std::size_t pos(void) { return rrr.pos(); }
@@ -1053,11 +1079,15 @@ void writer<ostream>::write_key(const char* key)
 }
 
 template <typename istream>
-std::string reader<istream>::read_key(void)
+std::string reader<istream>::read_key_impl(std::size_t* out_pos)
 {
     nodes.top().assert_rule<internal::NODE_key>();
 
     maybe_read_separator();
+    if (out_pos) {
+        rrr.skip_ws();
+        *out_pos = rrr.pos();
+    }
     std::string str = rrr.read_string();
 
     internal::node_t::add_child<internal::NODE_key>(nodes);
@@ -1074,12 +1104,29 @@ char* reader<istream>::read_key_cstr(std::size_t* out_len)
     rrr.skip_ws();
     std::size_t startpos = rrr.pos();
     char* str = rrr.read_cstring(out_len);
-    if (str == nullptr)
+    if (!str)
         throw internal::parse_err(startpos, "non-null string");
 
     internal::node_t::add_child<internal::NODE_key>(nodes);
     nodes.push({ internal::NODE_key });
     return str;
+}
+
+template <typename istream>
+void reader<istream>::read_key(const std::string& expected)
+{
+    std::size_t startpos;
+    if (read_key_impl(&startpos) != expected)
+        throw internal::parse_err(startpos, "string \"" + expected + "\"");
+}
+
+template <typename istream>
+void reader<istream>::read_key(const char* expected)
+{
+    std::size_t startpos;
+    std::string key = read_key_impl(&startpos);
+    if (std::strncmp(key.c_str(), expected, key.length()) != 0)
+        throw internal::parse_err(startpos, "string \"" + std::string(expected) + "\"");
 }
 
 template <typename ostream>
@@ -1348,7 +1395,7 @@ char* raw_reader<istream>::read_cstring(std::size_t* out_len)
     if (maybe_string.is_string())
     {
         auto& sb = maybe_string.get_string();
-        if (out_len) out_len = sb.length();
+        if (out_len) *out_len = sb.length();
         return sb.release();
     }   
     else return nullptr;
