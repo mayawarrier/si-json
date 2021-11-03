@@ -846,22 +846,6 @@ public:
     // Read object key-value pair.
     // Throws if key does not match expected.
     template <typename value_type>
-    inline void read_key_value(const std::string& expected, value_type& out_value) 
-    {
-        read_key(expected);
-        out_value = read_value<value_type>();
-    }
-    // Read object key-value pair.
-    // Throws if key does not match expected.
-    template <typename value_type>
-    inline void read_key_value(const char* expected, value_type& out_value)
-    {
-        read_key(expected);
-        out_value = read_value<value_type>();
-    }
-    // Read object key-value pair.
-    // Throws if key does not match expected.
-    template <typename value_type>
     inline value_type read_key_get_value(const std::string& expected)
     {
         read_key(expected);
@@ -874,6 +858,20 @@ public:
     {
         read_key(expected);
         return read_value<value_type>();
+    }
+    // Read object key-value pair.
+    // Throws if key does not match expected.
+    template <typename value_type>
+    inline void read_key_value(const std::string& expected, value_type& out_value) 
+    {
+        value = read_key_get_value(expected);
+    }
+    // Read object key-value pair.
+    // Throws if key does not match expected.
+    template <typename value_type>
+    inline void read_key_value(const char* expected, value_type& out_value)
+    {
+        value = read_key_get_value(expected);
     }
 
     // Synonym for stream.pos().
@@ -977,12 +975,24 @@ value_type from_string(const char* str, std::size_t len)
     raw_reader<imstream> reader(in);
     return reader.read<value_type>();
 }
-
 // Convert string to (unescaped) value. 
 template <typename value_type>
 value_type from_string(const std::string& str)
 {
     return from_string<value_type>(str.c_str(), str.length());
+}
+
+// Convert string to (unescaped) value.
+template <typename value_type>
+void from_string(const char* str, std::size_t len, value_type& value)
+{
+    value = from_string<value_type>(str, len);
+}
+// Convert string to (unescaped) value.
+template <typename value_type>
+void from_string(const std::string& str, value_type& value)
+{
+    value = from_string<value_type>(str);
 }
 
 template <typename ostream>
@@ -1081,6 +1091,7 @@ void reader<istream>::end_array(void)
     internal::node_t::add_child<internal::NODE_array>(nodes);
 }
 
+// Write object key.
 template <typename ostream>
 void writer<ostream>::write_key(const char* key)
 {
@@ -1111,6 +1122,8 @@ std::string reader<istream>::read_key_impl(std::size_t* out_pos)
     return str;
 }
 
+// Read object key as null-terminated string.
+// String is dynamically allocated.
 template <typename istream>
 char* reader<istream>::read_key_cstr(std::size_t* out_len)
 {
@@ -1128,6 +1141,8 @@ char* reader<istream>::read_key_cstr(std::size_t* out_len)
     return str;
 }
 
+// Read object key.
+// Throws if key does not match expected.
 template <typename istream>
 void reader<istream>::read_key(const std::string& expected)
 {
@@ -1136,6 +1151,8 @@ void reader<istream>::read_key(const std::string& expected)
         throw internal::parse_err(startpos, "string \"" + expected + "\"");
 }
 
+// Read object key.
+// Throws if key does not match expected.
 template <typename istream>
 void reader<istream>::read_key(const char* expected)
 {
@@ -1157,6 +1174,7 @@ void writer<ostream>::write_value_impl(value_type&& value)
     internal::node_t::add_child<internal::NODE_value>(nodes);
 }
 
+// Read value.
 template <typename istream>
 template <typename value_type>
 value_type reader<istream>::read_value(void)
@@ -1170,6 +1188,8 @@ value_type reader<istream>::read_value(void)
     return value;
 }
 
+// Read value as null-terminated string.
+// String is dynamically allocated.
 template <typename istream>
 char* reader<istream>::read_value_cstr(std::size_t* out_len)
 {
@@ -1199,6 +1219,7 @@ void writer<ostream>::write_key_value_impl(const char* key, value_type&& value)
     internal::node_t::add_child<internal::NODE_key | internal::NODE_value>(nodes);
 }
 
+// Read object key-value pair.
 template <typename istream>
 template <typename value_type>
 std::pair<std::string, value_type> reader<istream>::read_key_value(void)
