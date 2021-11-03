@@ -835,6 +835,13 @@ public:
     template <typename value_type>
     inline value_type read_value(void);
 
+    // Read value.
+    template <typename value_type>
+    inline void read_value(value_type& out_value)
+    {
+        out_value = read_value<value_type>();
+    }
+
     // Read value as null-terminated string.
     // String is dynamically allocated.
     inline char* read_value_cstr(std::size_t* out_len = nullptr);
