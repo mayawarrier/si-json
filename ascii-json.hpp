@@ -846,7 +846,23 @@ public:
     // Read object key-value pair.
     // Throws if key does not match expected.
     template <typename value_type>
-    inline value_type read_key_get_value(const std::string& expected) 
+    inline void read_key_value(const std::string& expected, value_type& out_value) 
+    {
+        read_key(expected);
+        out_value = read_value<value_type>();
+    }
+    // Read object key-value pair.
+    // Throws if key does not match expected.
+    template <typename value_type>
+    inline void read_key_value(const char* expected, value_type& out_value)
+    {
+        read_key(expected);
+        out_value = read_value<value_type>();
+    }
+    // Read object key-value pair.
+    // Throws if key does not match expected.
+    template <typename value_type>
+    inline value_type read_key_get_value(const std::string& expected)
     {
         read_key(expected);
         return read_value<value_type>();
@@ -854,7 +870,7 @@ public:
     // Read object key-value pair.
     // Throws if key does not match expected.
     template <typename value_type>
-    inline value_type read_key_get_value(const char* expected) 
+    inline value_type read_key_get_value(const char* expected)
     {
         read_key(expected);
         return read_value<value_type>();
