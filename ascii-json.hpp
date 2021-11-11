@@ -108,7 +108,7 @@ public:
         // fill buffer
         advance();
     }
-    virtual ~ifstream(void) {}
+    ifstream(ifstream&&) = default;
 
     ifstream& operator=(const ifstream&) = delete;
     ifstream& operator=(ifstream&&) = default;  
@@ -125,6 +125,12 @@ public:
 
     // Get position.
     inline std::size_t pos(void) const noexcept { return posn; }
+
+    // True if stream has ended.
+    inline bool end(void) const noexcept 
+    { return buf_eof && current == buf_last_read; }
+
+    virtual ~ifstream(void) {}
 };
 
 // Output file stream.
@@ -146,6 +152,7 @@ public:
         if (bufsize == 0)
             throw std::logic_error("Buffer size must be > 0");
     }
+    ofstream(ofstream&&) = default;
 
     ofstream& operator=(const ofstream&) = delete;
     ofstream& operator=(ofstream&&) = default;   
@@ -178,24 +185,31 @@ class imstream
 {
 private:
     const char* begin;
-    const char* end;
-    const char* current;
+    const char* pend;
+    const char* current;  
 public:
     imstream(const char* src, std::size_t size) :
-        begin(src), end(src + size),
+        begin(src), pend(src + size),
         current(src)
     {}
-    virtual ~imstream(void) {}
+    imstream(const char* src) : 
+        imstream(src, std::strlen(src))
+    {}
+    imstream(imstream&&) = default;
 
     imstream& operator=(const imstream&) = delete;
     imstream& operator=(imstream&&) = default;
 
     // Get current character.
-    inline char peek(void) const noexcept { return current == end ? '\0' : *current; }
+    inline char peek(void) const noexcept { return current < pend ? *current : '\0'; }
     // Get current character then advance.
-    inline char take(void) noexcept { return current == end ? '\0' : *current++; }
+    inline char take(void) noexcept { return current < pend ? *current++ : '\0'; }
     // Get position.
     inline std::size_t pos(void) const noexcept { return (std::size_t)(current - begin); }
+    // True if stream has ended.
+    inline bool end(void) const noexcept { return current == pend; }
+
+    virtual ~imstream(void) {}
 };
 
 // Output memory stream.
@@ -207,9 +221,9 @@ protected:
 
     void set_cap(std::size_t new_cap)
     {
+        assert(buf && new_cap >= len);
         if (cap != new_cap)
         {
-            assert(buf && new_cap >= len);
             char* new_buf = new char[new_cap];
             std::copy(buf.get(), buf.get() + len, new_buf);
             buf.reset(new_buf);
@@ -218,13 +232,13 @@ protected:
     }
 public:
     omstream(std::size_t init_capacity = 0) :
-        buf(new char[init_capacity]),
-        cap(init_capacity), len(0)
+        buf(new char[init_capacity]), cap(init_capacity), len(0)
     {}
-
+    omstream(omstream&&) = default;
+    
     omstream& operator=(const omstream&) = delete;
     omstream& operator=(omstream&&) = default;
-
+    
     // Commit data to target.
     inline void flush(void) const noexcept {}
 
@@ -244,17 +258,19 @@ public:
     inline std::size_t capacity(void) const noexcept { return cap; }
     // Get buffer.
     inline const char* get_buf(void) const noexcept { return buf.get(); }
+    // Release (ownership of) buffer.
+    inline char* release_buf(void) noexcept { return buf.release(); }
 
     virtual ~omstream(void) {}
 };
 
 // Wraps a std::string as an output stream.
-class sstream
+class osstream
 {
 private:
     std::string str;
 public:
-    sstream(std::size_t init_capacity = 0)
+    osstream(std::size_t init_capacity = 0)
     { str.reserve(init_capacity); }
 
     // Commit data to target.
@@ -268,6 +284,98 @@ public:
     inline std::string&& move_str(void) { return std::move(str); }
 };
 
+// Interface to an arbitrary input stream.
+class istream_interface
+{
+private:
+    void* stream;
+    char(*peek_impl)(void*);
+    char(*take_impl)(void*);
+    std::size_t(*pos_impl)(void*);
+    bool(*end_impl)(void*);
+
+public:
+    template <typename T>
+    istream_interface(T& istream) :
+        stream(&istream),
+        peek_impl([](void* is) -> char { return ((T*)is)->peek(); }), 
+        take_impl([](void* is) -> char { return ((T*)is)->take(); }),
+        pos_impl([](void* is) -> std::size_t { return ((T*)is)->pos(); }),
+        end_impl([](void* is) -> bool { return ((T*)is)->end(); })
+    {}
+
+    // Get current character.
+    inline char peek(void) const { return peek_impl(stream); }
+    // Extract a character.
+    inline char take(void) const { return take_impl(stream); }
+    // Get position.
+    inline std::size_t pos(void) const { return pos_impl(stream); }
+    // True if stream has ended.
+    inline bool end(void) const { return end_impl(stream); }
+};
+
+// Interface to an arbitrary output stream.
+class ostream_interface
+{
+private:
+    void* stream;
+    void(*flush_impl)(void*);
+    void(*put_impl)(void*, char);
+
+public:
+    template <typename T>
+    ostream_interface(T& stream) :
+        stream(&stream),
+        flush_impl([](void* os) { ((T*)os)->flush(); }),
+        put_impl([](void* os, char c) { ((T*)os)->put(c); })
+    {}
+
+    // Write a character.
+    inline void put(char c) const { put_impl(stream, c); }
+    // Commit data to target.
+    inline void flush(void) const { flush_impl(stream); }
+};
+
+// Wraps a set of input streams as a single input stream.
+class concatenated_istream
+{
+private:
+    std::size_t cur;
+    std::vector<istream_interface> streams;
+
+    inline istream_interface& current(void) {
+        for (; cur != streams.size(); ++cur)
+        {
+            auto& is = streams[cur];
+            if (!is.end()) return is;
+        }
+        return streams.back(); // placeholder. end of stream
+    }
+public:
+    concatenated_istream(const std::vector<istream_interface>& streams) : 
+        streams(streams), cur(0)
+    {}
+    concatenated_istream(std::vector<istream_interface>&& streams) :
+        streams(std::move(streams)), cur(0)
+    {}
+
+    // Get current character.
+    inline char peek(void) noexcept { return current().peek(); }
+    // Extract a character.
+    inline char take(void) noexcept { return current().take(); }
+    // Get position.
+    inline std::size_t pos(void) noexcept { return current().pos(); }
+    // True if stream has ended.
+    inline bool end(void) const noexcept { return cur == streams.size(); }
+};
+
+// Concatenate a set of input streams into a single input stream.
+template <typename ...istreams>
+inline concatenated_istream concat_istreams(istreams&... stream)
+{
+    return { { static_cast<istream_interface>(stream)... } };
+}
+
 namespace internal
 {
 class cstrbuilder : public omstream
@@ -276,19 +384,20 @@ public:
     cstrbuilder(std::size_t init_capacity = 0) :
         omstream(init_capacity)
     {}
-
+    cstrbuilder(cstrbuilder&&) = default;
+    
     cstrbuilder& operator=(const cstrbuilder&) = delete;
     cstrbuilder& operator=(cstrbuilder&&) = default;
 
     // Get null-terminated string.
     inline const char* get(void) {
         put('\0'); len--;
-        return buf.get();
+        return get_buf();
     }
     // Release (ownership of) string.
     inline char* release(void) {
         set_cap(len + 1); put('\0');
-        return buf.release();
+        return release_buf();
     }
 
     // string-like interface
@@ -339,7 +448,7 @@ struct is_nb_unsigned_integral : std::integral_constant<bool,
 template <typename T, 
     typename uT = typename std::make_unsigned<T>::type, 
     typename = typename std::enable_if<is_nb_signed_integral<T>::value>::type>
-uT absu(T value) 
+inline constexpr uT absu(T value) 
 {
     // should be true on sane archs :)
     static_assert(static_cast<T>(
@@ -373,9 +482,6 @@ inline void trim_back(std::string& str, const char* target)
         str.erase(off, std::strlen(target));
 }
 
-template <typename istream>
-inline bool end(istream& stream) { return stream.peek() == '\0'; }
-
 inline std::runtime_error parse_err(std::size_t position, const char* expected)
 {
     return std::runtime_error("Parse error at offset " +
@@ -390,10 +496,10 @@ inline std::runtime_error parse_err(std::size_t position, const std::string& exp
 template <typename istream>
 inline bool skip_ws(istream& stream)
 {
-    while (!end(stream) && std::isspace(stream.peek())) {
+    while (!stream.end() && std::isspace(stream.peek())) {
         stream.take();
     }
-    return !end(stream);
+    return !stream.end();
 }
 
 // Returns true if stream has more characters.
@@ -420,12 +526,12 @@ inline void put_reverse(ostream& stream, const std::string& str)
 template <typename istream, typename uint_type>
 inline bool read_uint(istream& stream, uint_type& out_value)
 {
-    if (end(stream) || !is_digit(stream.peek()) 
+    if (stream.end() || !is_digit(stream.peek()) 
         || stream.peek() == '-')
         return false;
 
     out_value = 0;
-    while (!end(stream) && is_digit(stream.peek())) {
+    while (!stream.end() && is_digit(stream.peek())) {
         uint_type old = out_value;
         out_value = 10 * out_value + (stream.take() - '0');
         if (out_value < old) return false; // overflow
@@ -508,7 +614,7 @@ template <typename istream, typename value_type>
 inline bool read_floating(istream& stream, value_type& out_value)
 {
     std::string sval;
-    while (!end(stream) && !std::isspace(stream.peek())
+    while (!stream.end() && !std::isspace(stream.peek())
         && !is_any_of(",]}", stream.peek())) {
         sval += stream.take();
     }
@@ -671,9 +777,9 @@ template <> void node_t::add_child<NODE_value>(std::stack<node_t>& nodes)
     else nodes.top().m_has_children = true;
 }
 
-// T(&)[] -> T*
+// T(&)[] -> T*, T[] -> T*
 template <typename T>
-struct decay_arrayref
+struct decay_array
 {
     using rref_t = typename std::remove_reference<T>::type;
     using type = typename std::conditional<
@@ -682,12 +788,22 @@ struct decay_arrayref
     >::type;
 };
 template <typename T>
-using decay_arrayref_t = typename decay_arrayref<T>::type;
+using decay_array_t = typename decay_array<T>::type;
 
+// True if T = char*, char* const, const char*, or const char* const
 template <typename T>
-struct is_char_ptr : std::integral_constant<bool,
+struct is_cv_char_ptr : std::integral_constant<bool,
     std::is_same<typename std::remove_cv<T>::type, char*>::value ||
     std::is_same<typename std::remove_cv<T>::type, const char*>::value>
+{};
+
+// True if T is supported (maybe cv-qualified) string type.
+template <typename T>
+struct is_cv_string : std::integral_constant<bool,
+    is_cv_char_ptr<T>::value || 
+    std::is_same<std::string, 
+        typename std::remove_cv<T>::type
+    >::value>
 {};
 
 // forward decl
@@ -702,10 +818,9 @@ private:
     istream& stream;
     friend class internal::rw;
 
-    // str_type must be movable and implement
-    // reserve() and push_back().
+    // str_type must be movable and implement reserve() and push_back().
     template <typename str_type>
-    inline internal::string_or_null<str_type> 
+    inline internal::string_or_null<str_type>
         read_string_variant(std::size_t* out_startpos = nullptr);
 
 public:
@@ -726,8 +841,8 @@ public:
     inline std::string read_string(void);
 
     // Read null or null-terminated string.
-    // String is dynamically allocated.
-    inline char* read_cstring(std::size_t* out_len = nullptr);
+    // String must be delete[]d after usage!
+    inline char* read_cstring_unsafe(std::size_t* out_len = nullptr);
 
     inline void read_start_object(void) { internal::skip_ws_and_read(stream, '{'); } 
     inline void read_end_object(void) { internal::skip_ws_and_read(stream, '}'); }
@@ -772,8 +887,19 @@ public:
     inline void write_bool(bool value) { internal::put(stream, value ? "true" : "false"); }
     inline void write_null(void) { internal::put(stream, "null"); }
 
-    inline void write_string(const char* value);
-    inline void write_string(const std::string& value) { write_string(value.c_str()); }
+    // is_end = bool(*)(std::size_t index);
+    // returns true when past end of the string.
+    template <typename func>
+    inline void write_string(const char* value, func is_end);
+
+    inline void write_string(const char* value)
+    { write_string(value, [&](std::size_t i) -> bool { return value[i] == '\0'; }); }
+
+    inline void write_string(const char* value, std::size_t len)
+    { write_string(value, [&](std::size_t i) -> bool { return i == len; }); }
+
+    inline void write_string(const std::string& value) 
+    { write_string(value.c_str(), value.length()); }
 
     inline void write_start_object(void) { stream.put('{'); }
     inline void write_end_object(void) { stream.put('}'); }
@@ -784,7 +910,7 @@ public:
 
     // Write arbitrary value.
     template <typename value_type> 
-    inline void write(value_type&& value);
+    inline void write(const value_type& value);
 
     // Synonym for stream.put().
     inline void put(char c) { stream.put(c); }
@@ -820,8 +946,8 @@ public:
     inline std::string read_key(void) { return read_key_impl(); }
 
     // Read object key as null-terminated string.
-    // String is dynamically allocated.
-    inline char* read_key_cstr(std::size_t* out_len = nullptr);
+    // String must be delete[]d after usage!
+    inline char* read_key_unsafe(std::size_t* out_len = nullptr);
 
     // Read object key.
     // Throws if key does not match expected.
@@ -831,6 +957,10 @@ public:
     // Throws if key does not match expected.
     inline void read_key(const char* expected);
 
+    // Read object key.
+    // Throws if key does not match expected.
+    inline void read_key(const char* expected, std::size_t exp_len);
+
     // Read value.
     template <typename value_type>
     inline value_type read_value(void);
@@ -838,13 +968,11 @@ public:
     // Read value.
     template <typename value_type>
     inline void read_value(value_type& out_value)
-    {
-        out_value = read_value<value_type>();
-    }
+    { out_value = read_value<value_type>(); }
 
-    // Read value as null-terminated string.
-    // String is dynamically allocated.
-    inline char* read_value_cstr(std::size_t* out_len = nullptr);
+    // Read string value as null-terminated string.
+    // String must be delete[]d after usage!
+    inline char* read_strvalue_unsafe(std::size_t* out_len = nullptr);
 
     // Read object key-value pair.
     template <typename value_type>
@@ -869,16 +997,32 @@ public:
     // Read object key-value pair.
     // Throws if key does not match expected.
     template <typename value_type>
+    inline value_type read_key_get_value(const char* expected, std::size_t exp_len)
+    {
+        read_key(expected, exp_len);
+        return read_value<value_type>();
+    }
+
+    // Read object key-value pair.
+    // Throws if key does not match expected.
+    template <typename value_type>
     inline void read_key_value(const std::string& expected, value_type& out_value) 
     {
-        value = read_key_get_value(expected);
+        out_value = read_key_get_value<value_type>(expected);
     }
     // Read object key-value pair.
     // Throws if key does not match expected.
     template <typename value_type>
     inline void read_key_value(const char* expected, value_type& out_value)
     {
-        value = read_key_get_value(expected);
+        out_value = read_key_get_value<value_type>(expected);
+    }
+    // Read object key-value pair.
+    // Throws if key does not match expected.
+    template <typename value_type>
+    inline void read_key_value(const char* expected, std::size_t exp_len, value_type& out_value)
+    {
+        out_value = read_key_get_value<value_type>(expected, exp_len);
     }
 
     // Synonym for stream.pos().
@@ -896,10 +1040,12 @@ private:
     std::stack<internal::node_t> nodes;
 
     inline void maybe_write_separator(void);
+    template <typename func>
+    inline void write_key_impl(const char* key, func is_end);
     template <typename value_type>
-    inline void write_value_impl(value_type&& value);
-    template <typename value_type>
-    inline void write_key_value_impl(const char* key, value_type&& value);
+    inline void write_value_impl(const value_type& value);
+    template <typename value_type, typename func>
+    inline void write_key_value_impl(const char* key, func is_end, const value_type& value);
 
 public:
     writer(ostream& stream) : rwr{ stream }
@@ -911,29 +1057,44 @@ public:
     inline void end_array(void);
 
     // Write object key.
-    inline void write_key(const char* key);
+    inline void write_key(const char* key) 
+    { write_key_impl(key, [&](std::size_t i) -> bool { return key[i] == '\0'; }); }
+
     // Write object key.
-    inline void write_key(const std::string& key) { write_key(key.c_str()); }
+    inline void write_key(const char* key, std::size_t len)
+    { write_key_impl(key, [&](std::size_t i) -> bool { return i == len; }); }
+
+    // Write object key.
+    inline void write_key(const std::string& key) { write_key(key.c_str(), key.length()); }
 
     // Write value.
     template <typename value_type>
-    inline void write_value(value_type&& value)
-    { 
-        write_value_impl(std::forward<internal::decay_arrayref_t<value_type>>(value)); 
-    }
+    inline void write_value(const value_type& value)
+    { write_value_impl((internal::decay_array_t<const value_type&>)value); }
+
     // Write object key-value pair.
     template <typename value_type>
-    inline void write_key_value(const char* key, value_type&& value) 
+    inline void write_key_value(const char* key, const value_type& value) 
     { 
         write_key_value_impl(key, 
-            std::forward<internal::decay_arrayref_t<value_type>>(value)); 
+            [&](std::size_t i) -> bool { return key[i] == '\0'; },
+            (internal::decay_array_t<const value_type&>)value);
     }
     // Write object key-value pair.
     template <typename value_type>
-    inline void write_key_value(const std::string& key, value_type&& value) 
+    inline void write_key_value(const char* key, std::size_t keylen, const value_type& value)
+    {
+        write_key_value_impl(key,
+            [&](std::size_t i) -> bool { return i == len; },
+            (internal::decay_array_t<const value_type&>)value);
+    }
+    // Write object key-value pair.
+    template <typename value_type>
+    inline void write_key_value(const std::string& key, const value_type& value) 
     { 
-        write_key_value_impl(key.c_str(), 
-            std::forward<internal::decay_arrayref_t<value_type>>(value)); 
+        write_key_value_impl(key.c_str(),
+            [&](std::size_t i) -> bool { return i == key.length(); },
+            (internal::decay_array_t<const value_type&>)value);
     }
 
     // Synonym for stream.flush().
@@ -948,58 +1109,172 @@ public:
 
 namespace internal
 {
-template <typename value_type>
-std::string to_string_impl(value_type&& value)
+// do_read = (raw_reader<concatenated_istream>&) -> <any>
+template <typename func>
+inline auto from_unquoted_string(const char* str, std::size_t len, func do_read) 
+-> decltype(do_read(std::declval<raw_reader<concatenated_istream>>()))
 {
-    sstream sb(4);
-    raw_writer<sstream> writer(sb);
-    writer.write(std::forward<value_type>(value));
+    imstream front("\""), middle(str, len), back("\"");
+    auto is = concat_istreams(front, middle, back);
+    raw_reader<decltype(is)> reader(is);
+    return do_read(reader);
+}
+
+// do_write = (raw_writer<osstream>&) -> void
+template <typename value_type, typename func>
+inline std::string to_unquoted_string(func do_write)
+{
+    osstream os(4);
+    raw_writer<osstream> writer(os);
+    do_write(writer);
     writer.flush();
 
-    std::string str = sb.move_str();
-    if (is_char_ptr<value_type>::value)
+    std::string str = os.move_str();
+    if (is_cv_string<value_type>::value)
     {
-        trim_front(str, "'");
-        trim_back(str, "'");
+        trim_front(str, "\"");
+        trim_back(str, "\"");
     }
     return str;
+}
+
+template <typename value_type,
+    typename std::enable_if<is_cv_string<value_type>::value, int>::type = 0>
+inline value_type from_string_impl(const char* str, std::size_t len)
+{
+    return from_unquoted_string(str, len,
+        [](raw_reader<concatenated_istream>& r) { return r.read<value_type>(); });
+}
+
+template <typename value_type,
+    typename std::enable_if<!is_cv_string<value_type>::value, int>::type = 0>
+inline value_type from_string_impl(const char* str, std::size_t len)
+{
+    imstream is(str, len);
+    raw_reader<imstream> reader(is);
+    return reader.read<value_type>();
 }
 }
 
 // Convert value to (escaped) string.
 template <typename value_type>
-std::string to_string(value_type&& value)
+inline std::string to_string(const value_type& value)
 {
-    return internal::to_string_impl(
-        std::forward<internal::decay_arrayref_t<value_type>>(value));
+    return internal::to_unquoted_string<value_type>(
+        [&](raw_writer<osstream>& w) { w.write(value); });
 }
 
-// Convert string to (unescaped) value.
+// Convert string to value.
 template <typename value_type>
-value_type from_string(const char* str, std::size_t len)
-{
-    imstream in(str, len);
-    raw_reader<imstream> reader(in);
-    return reader.read<value_type>();
-}
-// Convert string to (unescaped) value. 
-template <typename value_type>
-value_type from_string(const std::string& str)
-{
-    return from_string<value_type>(str.c_str(), str.length());
+inline value_type from_string(const char* str, std::size_t len)
+{ 
+    static_assert(!internal::is_cv_char_ptr<value_type>::value,
+        "Use json::unescape_unsafe() instead");
+
+    return internal::from_string_impl<value_type>(str, len);
 }
 
-// Convert string to (unescaped) value.
+// Convert string to value. 
 template <typename value_type>
-void from_string(const char* str, std::size_t len, value_type& value)
-{
-    value = from_string<value_type>(str, len);
+inline value_type from_string(const std::string& str)
+{ 
+    return from_string<value_type>(str.c_str(), str.length()); 
 }
-// Convert string to (unescaped) value.
+// Convert string to value.
 template <typename value_type>
-void from_string(const std::string& str, value_type& value)
+inline void from_string(const std::string& str, value_type& out_value)
+{ 
+    out_value = from_string<value_type>(str); 
+}
+// Convert string to value.
+template <typename value_type>
+inline void from_string(const char* str, std::size_t len, value_type& out_value)
+{ 
+    out_value = from_string<value_type>(str, len); 
+}
+// Convert string to value.
+template <typename value_type>
+inline value_type from_string(const char* str)
+{ 
+    return from_string<value_type>(str, std::strlen(str)); 
+}
+template <typename value_type>
+inline void from_string(const char* str, value_type& out_value)
+{ 
+    out_value = from_string<value_type>(str); 
+}
+
+// Escape string (by JSON escape rules).
+inline std::string escape(const char* str, std::size_t len)
 {
-    value = from_string<value_type>(str);
+    return internal::to_unquoted_string<char*>(
+        [&](raw_writer<osstream>& w) { w.write_string(str, len); });
+}
+// Escape string (by JSON escape rules).
+inline std::string escape(const char* str)
+{
+    return escape(str, std::strlen(str));
+}
+// Escape string (by JSON escape rules).
+inline std::string escape(const std::string& str) 
+{
+    return escape(str.c_str(), str.length());
+}
+// Unescape string (by JSON unescape rules).
+inline std::string unescape(const char* str, std::size_t len)
+{
+    return from_string<std::string>(str, len);
+}
+// Unescape string (by JSON unescape rules).
+inline std::string unescape(const char* str)
+{
+    return unescape(str, std::strlen(str));
+}
+// Unescape string (by JSON unescape rules).
+inline std::string unescape(const std::string& str)
+{
+    return unescape(str.c_str(), str.length());
+}
+
+// Escape string (by JSON escape rules).
+// Output string must be delete[]d after usage!
+inline char* escape_unsafe(const char* str, std::size_t in_len, std::size_t* out_len = nullptr)
+{
+    omstream os(4);
+    raw_writer<omstream> writer(os);
+    writer.write_string(str, in_len);
+    writer.flush();
+
+    os.shrink_to_fit();
+    char* estr = os.release_buf();
+    // overwrite quotes, null-terminate
+    estr[os.length() - 1] = '\0';
+    std::memmove(estr, estr + 1, os.length() - 1);
+
+    if (out_len) *out_len = os.length() - 2;
+    return estr;
+}
+
+// Escape string (by JSON escape rules).
+// Output string must be delete[]d after usage!
+inline char* escape_unsafe(const char* str, std::size_t* out_len = nullptr)
+{
+    return escape_unsafe(str, std::strlen(str), out_len);
+}
+
+// Unescape string (by JSON unescape rules).
+// Output string must be delete[]d after usage!
+inline char* unescape_unsafe(const char* str, std::size_t in_len, std::size_t* out_len = nullptr)
+{
+    return internal::from_unquoted_string(str, in_len,
+        [&](raw_reader<concatenated_istream>& r) { return r.read_cstring_unsafe(out_len); });
+}
+
+// Unescape string (by JSON unescape rules).
+// Output string must be delete[]d after usage!
+inline char* unescape_unsafe(const char* str, std::size_t* out_len = nullptr)
+{
+    return unescape_unsafe(str, std::strlen(str), out_len);
 }
 
 template <typename ostream>
@@ -1100,13 +1375,14 @@ void reader<istream>::end_array(void)
 
 // Write object key.
 template <typename ostream>
-void writer<ostream>::write_key(const char* key)
+template <typename func>
+void writer<ostream>::write_key_impl(const char* key, func is_end)
 {
+    assert(key);
     nodes.top().assert_rule<internal::NODE_key>();
-    if (!key) throw std::logic_error("object key is null");
 
     maybe_write_separator();
-    rwr.write_string(key);
+    rwr.write_string(key, is_end);
 
     internal::node_t::add_child<internal::NODE_key>(nodes);
     nodes.push({ internal::NODE_key });
@@ -1130,16 +1406,16 @@ std::string reader<istream>::read_key_impl(std::size_t* out_pos)
 }
 
 // Read object key as null-terminated string.
-// String is dynamically allocated.
+// String must be delete[]d after usage!
 template <typename istream>
-char* reader<istream>::read_key_cstr(std::size_t* out_len)
+char* reader<istream>::read_key_unsafe(std::size_t* out_len)
 {
     nodes.top().assert_rule<internal::NODE_key>();
 
     maybe_read_separator();
     rrr.skip_ws();
     std::size_t startpos = rrr.pos();
-    char* str = rrr.read_cstring(out_len);
+    char* str = rrr.read_cstring_unsafe(out_len);
     if (!str)
         throw internal::parse_err(startpos, "non-null string");
 
@@ -1165,18 +1441,29 @@ void reader<istream>::read_key(const char* expected)
 {
     std::size_t startpos;
     std::string key = read_key_impl(&startpos);
-    if (std::strncmp(key.c_str(), expected, key.length()) != 0)
+    if (key.compare(0, key.length(), expected) != 0)
         throw internal::parse_err(startpos, "string \"" + std::string(expected) + "\"");
+}
+
+// Read object key.
+// Throws if key does not match expected.
+template <typename istream>
+void reader<istream>::read_key(const char* expected, std::size_t len)
+{
+    std::size_t startpos;
+    std::string key = read_key_impl(&startpos);
+    if (key.compare(0, key.length(), expected, len) != 0)
+        throw internal::parse_err(startpos, "string \"" + std::string(expected, len) + "\"");
 }
 
 template <typename ostream>
 template <typename value_type>
-void writer<ostream>::write_value_impl(value_type&& value)
+void writer<ostream>::write_value_impl(const value_type& value)
 {
     nodes.top().assert_rule<internal::NODE_value>();
 
     maybe_write_separator();
-    rwr.write(std::forward<value_type>(value));
+    rwr.write(value);
 
     internal::node_t::add_child<internal::NODE_value>(nodes);
 }
@@ -1196,32 +1483,32 @@ value_type reader<istream>::read_value(void)
 }
 
 // Read value as null-terminated string.
-// String is dynamically allocated.
+// String must be delete[]d after usage!
 template <typename istream>
-char* reader<istream>::read_value_cstr(std::size_t* out_len)
+char* reader<istream>::read_strvalue_unsafe(std::size_t* out_len)
 {
     nodes.top().assert_rule<internal::NODE_value>();
 
     maybe_read_separator();
-    char* value = rrr.read_cstring(out_len);
+    char* value = rrr.read_cstring_unsafe(out_len);
 
     internal::node_t::add_child<internal::NODE_value>(nodes);
     return value;
 }
 
 template <typename ostream>
-template <typename value_type>
-void writer<ostream>::write_key_value_impl(const char* key, value_type&& value)
+template <typename value_type, typename func>
+void writer<ostream>::write_key_value_impl(const char* key, func is_end, const value_type& value)
 {
+    assert(key);
     nodes.top().assert_rule<internal::NODE_key | internal::NODE_value>();
-    if (!key) throw std::logic_error("object key is null");
 
     if (nodes.top().has_children()) 
         rwr.write_item_separator();
  
-    rwr.write_string(key);
+    rwr.write_string(key, is_end);
     rwr.write_key_separator();
-    rwr.write(std::forward<value_type>(value));
+    rwr.write(value);
 
     internal::node_t::add_child<internal::NODE_key | internal::NODE_value>(nodes);
 }
@@ -1383,8 +1670,8 @@ fail:
 
 template <typename istream>
 template <typename str_type>
-internal::string_or_null<str_type> 
-raw_reader<istream>::read_string_variant(std::size_t* out_startpos)
+inline internal::string_or_null<str_type>
+raw_reader<istream>::read_string_variant(std::size_t* out_startpos = nullptr)
 {
     std::size_t startpos;
     if (!internal::skip_ws(stream, startpos)) goto fail;
@@ -1401,7 +1688,7 @@ raw_reader<istream>::read_string_variant(std::size_t* out_startpos)
     {
         stream.take(); // open quotes
         str_type str; str.reserve(4);
-        while (!internal::end(stream) && stream.peek() != '"')
+        while (!stream.end() && stream.peek() != '"')
         {
             switch (stream.peek())
             {
@@ -1413,8 +1700,8 @@ raw_reader<istream>::read_string_variant(std::size_t* out_startpos)
                     break;
             }
         }
-        if (internal::end(stream)) goto fail;
-        stream.take(); // close quotes
+        if (stream.end()) goto fail;
+        if (stream.take() != '"') goto fail; // close quotes
 
         return { std::move(str) };
     }
@@ -1426,35 +1713,37 @@ template <typename istream>
 std::string raw_reader<istream>::read_string(void)
 {
     std::size_t startpos;
-    auto maybe_string = read_string_variant<std::string>(&startpos);
+    auto&& maybe_string = read_string_variant<std::string>(&startpos);
     if (maybe_string.is_null())
         throw internal::parse_err(startpos, "non-null string");
     return maybe_string.move_string();
 }
 
 template <typename istream>
-char* raw_reader<istream>::read_cstring(std::size_t* out_len)
+char* raw_reader<istream>::read_cstring_unsafe(std::size_t* out_len)
 {
-    auto maybe_string = read_string_variant<internal::cstrbuilder>();
+    auto&& maybe_string = read_string_variant<internal::cstrbuilder>();
     if (maybe_string.is_string())
     {
         auto& sb = maybe_string.get_string();
         if (out_len) *out_len = sb.length();
         return sb.release();
-    }   
+    }
     else return nullptr;
 }
 
 template <typename ostream>
-void raw_writer<ostream>::write_string(const char* value)
+template <typename func>
+void raw_writer<ostream>::write_string(const char* value, func is_end)
 {
     if (value == nullptr)
         internal::put(stream, "null");
     else
     {
         stream.put('"');
-        for (char c = *value++; c != '\0'; c = *value++)
+        for (std::size_t i = 0; !is_end(i); ++i)
         {
+            char c = value[i];
             const char* esc = internal::try_escape(c);
             if (esc) internal::put(stream, esc);
             else stream.put(c);
@@ -1556,17 +1845,18 @@ template <typename istream>
 template <typename value_type>
 value_type raw_reader<istream>::read(void)
 {
-    static_assert(!internal::is_char_ptr<value_type>::value,
+    static_assert(!internal::is_cv_char_ptr<value_type>::value,
         "Templated read does not support C-strings. "
-        "Use std::string or call read_cstring() instead.");
+        "Use std::string or call read_cstring_unsafe() instead.");
     return internal::rw::read<istream, value_type>(*this);
 }
 
 template <typename ostream> 
 template <typename value_type> 
-void raw_writer<ostream>::write(value_type&& value) 
+void raw_writer<ostream>::write(const value_type& value) 
 {
-    internal::rw::write(*this, std::forward<internal::decay_arrayref_t<value_type>>(value)); 
+    internal::rw::write(*this, 
+        (internal::decay_array_t<const value_type&>)value);
 }
 }
 
