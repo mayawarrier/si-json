@@ -2,12 +2,19 @@
 .vs/
 Debug/
 Release/
+ReleaseWithAssert/
 *.sln
 *.vcxproj
 *.vcxproj.filters
 *.vcxproj.user
+*.psess
+*.vspx
 
 # testing
+a.out
+a.out.js
+a.out.wasm
+main.s
 main.cpp
 test.json
 
