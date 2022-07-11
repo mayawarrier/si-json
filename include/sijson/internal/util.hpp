@@ -38,7 +38,7 @@
 #endif
 
 
-namespace json {
+namespace sijson {
 namespace internal {
 namespace util {
 

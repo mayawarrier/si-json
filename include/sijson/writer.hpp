@@ -24,7 +24,7 @@
 #include "stdstream.hpp"
 
 
-namespace json {
+namespace sijson {
 
 // Low-level ASCII JSON writer.
 template <typename Ostream>

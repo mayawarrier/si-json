@@ -17,7 +17,7 @@
 #include "internal/impl_file.hpp"
 #include "internal/buffers.hpp"
 
-namespace json {
+namespace sijson {
 
 // Input file stream.
 class ifilestream

@@ -17,7 +17,7 @@
 #include "util.hpp"
 
 
-namespace json {
+namespace sijson {
 namespace internal {
 
 // Dynamically-allocated resizable buffer.

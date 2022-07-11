@@ -19,7 +19,7 @@
 #endif
 
 
-namespace json {
+namespace sijson {
 namespace internal {
 
 class file

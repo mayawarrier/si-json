@@ -16,7 +16,7 @@
 #include "util.hpp"
 
 
-namespace json {
+namespace sijson {
 namespace internal {
 
 class rw_util

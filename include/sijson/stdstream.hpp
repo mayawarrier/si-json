@@ -13,7 +13,7 @@
 #include "internal/util.hpp"
 
 
-namespace json {
+namespace sijson {
 
 // Adapts a std::basic_istream to this library's istream.
 template <typename BasicIstream = std::istream>

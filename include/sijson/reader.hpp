@@ -25,7 +25,7 @@
 #include "stdstream.hpp"
 
 
-namespace json {
+namespace sijson {
 
 // Low-level ASCII JSON reader.
 template <typename Istream>

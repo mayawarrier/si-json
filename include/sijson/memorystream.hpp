@@ -10,7 +10,7 @@
 #include "common.hpp"
 #include "internal/buffers.hpp"
 
-namespace json {
+namespace sijson {
 
 // Input memory stream.
 class imstream

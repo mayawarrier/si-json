@@ -19,7 +19,7 @@
 #include <string_view>
 #endif
 
-namespace json {
+namespace sijson {
 
 // Input string stream.
 class isstream : public imstream

@@ -12,7 +12,7 @@
 #include "internal/common.hpp"
 #include "internal/util.hpp"
 
-namespace json {
+namespace sijson {
 
 template <typename, typename = void>
 struct is_istream : std::false_type {};

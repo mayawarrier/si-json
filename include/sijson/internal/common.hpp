@@ -11,7 +11,7 @@
 
 #include "util.hpp"
 
-namespace json {
+namespace sijson {
 
 enum token_t : unsigned
 {

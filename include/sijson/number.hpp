@@ -8,7 +8,7 @@
 
 #include "internal/util.hpp"
 
-namespace json {
+namespace sijson {
 
 // Arbitrary numerical value (integral or floating-point).
 class number final
