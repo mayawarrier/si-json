@@ -79,7 +79,7 @@ public:
     {
         if (value)
         {
-            icsstream is(value);
+            icstrstream is(value);
             write_string_from(is);
         }
         else write_null();
@@ -90,7 +90,7 @@ public:
     {
         if (value)
         {
-            isstream is(value, length);
+            istrstream is(value, length);
             write_string_from(is);
         }
         else write_null();
@@ -100,7 +100,7 @@ public:
     template <typename ...Ts>
     inline void write_string(const std::basic_string<char, Ts...>& value)
     {
-        isstream is(value.c_str(), value.length());
+        istrstream is(value.c_str(), value.length());
         write_string_from(is);
     }
 

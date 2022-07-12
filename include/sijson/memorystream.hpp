@@ -13,25 +13,25 @@
 namespace sijson {
 
 // Input memory stream.
-class imstream
+class imemstream
 {
 public:
-    imstream(memspan<const char> span) :
+    imemstream(memspan<const char> span) :
         m_begin(span.begin), m_cur(span.begin), m_end(span.end)
     {
         if (!span.begin || !span.end)
             throw std::invalid_argument("Source is null");
     }
 
-    imstream(const char* src, std::size_t size) :
-        imstream({ src, src + size })
+    imemstream(const char* src, std::size_t size) :
+        imemstream({ src, src + size })
     {}
 
-    imstream(imstream&&) = default;
-    imstream(const imstream&) = delete;
+    imemstream(imemstream&&) = default;
+    imemstream(const imemstream&) = delete;
 
-    imstream& operator=(imstream&&) = default;
-    imstream& operator=(const imstream&) = delete;
+    imemstream& operator=(imemstream&&) = default;
+    imemstream& operator=(const imemstream&) = delete;
 
     // Get character. If end(), behavior is undefined.
     inline char peek(void) const noexcept { return *m_cur; }
@@ -63,27 +63,27 @@ private:
 
 // Output memory stream.
 template <typename Allocator = std::allocator<char>>
-class basic_omstream
+class basic_omemstream
 {
 public:
     using allocator_type = Allocator;
 
 public:
-    basic_omstream(std::size_t init_capacity,
+    basic_omemstream(std::size_t init_capacity,
         const Allocator& alloc = Allocator()
     ) :
         m_buf{ init_capacity, alloc }, m_pos(0)
     {}
 
-    basic_omstream(const Allocator& alloc = Allocator()) :
+    basic_omemstream(const Allocator& alloc = Allocator()) :
         m_buf{ alloc }, m_pos(0)
     {}
 
-    basic_omstream(basic_omstream&&) = default;
-    basic_omstream(const basic_omstream& rhs) = default;
+    basic_omemstream(basic_omemstream&&) = default;
+    basic_omemstream(const basic_omemstream& rhs) = default;
 
-    basic_omstream& operator=(basic_omstream&&) = default;
-    basic_omstream& operator=(const basic_omstream&) = default;
+    basic_omemstream& operator=(basic_omemstream&&) = default;
+    basic_omemstream& operator=(const basic_omemstream&) = default;
 
     // Put a character.
     // If this function fails for any reason, it 
@@ -143,7 +143,7 @@ private:
     std::size_t m_pos;
 };
 
-using omstream = basic_omstream<std::allocator<char>>;
+using omemstream = basic_omemstream<std::allocator<char>>;
 
 }
 

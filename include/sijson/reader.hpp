@@ -79,7 +79,7 @@ public:
         typename Allocator = std::allocator<char>>
         inline std::basic_string<char, Traits, Allocator> read_string(void)
     {
-        basic_ostdsstream<Traits, Allocator> os;
+        basic_ostdstrstream<Traits, Allocator> os;
         read_string_impl(m_stream, os);
         return std::move(os).str();
     }

@@ -22,46 +22,46 @@
 namespace sijson {
 
 // Input string stream.
-class isstream : public imstream
+class istrstream : public imemstream
 {
 public:
 #ifdef SIJSON_HAS_STRING_VIEW
     template <typename Traits>
-    isstream(std::basic_string_view<char, Traits> src) :
-        imstream(src.data(), src.size())
+    istrstream(std::basic_string_view<char, Traits> src) :
+        imemstream(src.data(), src.size())
     {}
 #endif
-    isstream(memspan<const char> span) :
-        imstream(span)
+    istrstream(memspan<const char> span) :
+        imemstream(span)
     {}
 
-    isstream(const char* src, std::size_t size) :
-        imstream(src, size)
+    istrstream(const char* src, std::size_t size) :
+        imemstream(src, size)
     {}
 
-    isstream(isstream&&) = default;
-    isstream(const isstream&) = delete;
+    istrstream(istrstream&&) = default;
+    istrstream(const istrstream&) = delete;
 
-    isstream& operator=(isstream&&) = default;
-    isstream& operator=(const isstream&) = delete;
+    istrstream& operator=(istrstream&&) = default;
+    istrstream& operator=(const istrstream&) = delete;
 };
 
 // Input C-string stream.
-class icsstream
+class icstrstream
 {
 public:
-    icsstream(const char* src) :
+    icstrstream(const char* src) :
         m_begin(src), m_cur(src)
     {
         if (!src) 
             throw std::invalid_argument("Source is null");
     }
 
-    icsstream(icsstream&&) = default;
-    icsstream(const icsstream&) = delete;
+    icstrstream(icstrstream&&) = default;
+    icstrstream(const icstrstream&) = delete;
 
-    icsstream& operator=(icsstream&&) = default;
-    icsstream& operator=(const icsstream&) = delete;
+    icstrstream& operator=(icstrstream&&) = default;
+    icstrstream& operator=(const icstrstream&) = delete;
 
     // Get character. If end(), behavior is undefined.
     inline char peek(void) const noexcept { return *m_cur; }
@@ -85,19 +85,19 @@ private:
 
 
 // Input std::basic_string stream.
-class istdsstream : public imstream
+class istdstrstream : public imemstream
 {
 public:
     template <typename ...Ts>
-    istdsstream(const std::basic_string<char, Ts...>& str) :
-        imstream(str.c_str(), str.length())
+    istdstrstream(const std::basic_string<char, Ts...>& str) :
+        imemstream(str.c_str(), str.length())
     {}
 
-    istdsstream(istdsstream&&) = default;
-    istdsstream(const istdsstream&) = delete;
+    istdstrstream(istdstrstream&&) = default;
+    istdstrstream(const istdstrstream&) = delete;
 
-    istdsstream& operator=(istdsstream&&) = default;
-    istdsstream& operator=(const istdsstream&) = delete;
+    istdstrstream& operator=(istdstrstream&&) = default;
+    istdstrstream& operator=(const istdstrstream&) = delete;
 };
 
 
@@ -107,7 +107,7 @@ template <
     typename Allocator = std::allocator<char>,
     bool NullTerminated = true
 >
-class basic_osstream
+class basic_ostrstream
 {
 public:
     using traits_type = Traits;
@@ -115,7 +115,7 @@ public:
     static constexpr bool is_null_terminated = NullTerminated;
 
 public:
-    basic_osstream(std::size_t init_capacity, 
+    basic_ostrstream(std::size_t init_capacity, 
         const Allocator& alloc = Allocator()
     ) :
         m_buf{ init_capacity + is_null_terminated, alloc }
@@ -123,17 +123,17 @@ public:
         init();
     }
     
-    basic_osstream(const Allocator& alloc = Allocator()) :
+    basic_ostrstream(const Allocator& alloc = Allocator()) :
         m_buf{ alloc }
     {
         init();
     }
 
-    basic_osstream(basic_osstream&&) = default;
-    basic_osstream(const basic_osstream& rhs) = default;
+    basic_ostrstream(basic_ostrstream&&) = default;
+    basic_ostrstream(const basic_ostrstream& rhs) = default;
 
-    basic_osstream& operator=(basic_osstream&&) = default;
-    basic_osstream& operator=(const basic_osstream&) = default;
+    basic_ostrstream& operator=(basic_ostrstream&&) = default;
+    basic_ostrstream& operator=(const basic_ostrstream&) = default;
 
     // Put a character.
     // If this function fails for any reason, it 
@@ -236,7 +236,7 @@ private:
 template <
     typename Traits = std::char_traits<char>,
     typename Allocator = std::allocator<char>>
-class basic_ostdsstream
+class basic_ostdstrstream
 {
 public:
     using traits_type = Traits;
@@ -245,7 +245,7 @@ public:
     static constexpr bool is_null_terminated = true;
 
 public:
-    basic_ostdsstream(std::size_t init_capacity,
+    basic_ostdstrstream(std::size_t init_capacity,
         const Allocator& alloc = Allocator()
     ) :
         m_str{ alloc }
@@ -253,15 +253,15 @@ public:
         m_str.reserve(init_capacity);
     }
 
-    basic_ostdsstream(const Allocator& alloc = Allocator()) :
+    basic_ostdstrstream(const Allocator& alloc = Allocator()) :
         m_str{ alloc }
     {}
 
-    basic_ostdsstream(basic_ostdsstream&&) = default;
-    basic_ostdsstream(const basic_ostdsstream&) = default;
+    basic_ostdstrstream(basic_ostdstrstream&&) = default;
+    basic_ostdstrstream(const basic_ostdstrstream&) = default;
 
-    basic_ostdsstream& operator=(basic_ostdsstream&&) = default;
-    basic_ostdsstream& operator=(const basic_ostdsstream&) = default;
+    basic_ostdstrstream& operator=(basic_ostdstrstream&&) = default;
+    basic_ostdstrstream& operator=(const basic_ostdstrstream&) = default;
 
     // Put a character.
     // If this function fails for any reason, it 
@@ -453,9 +453,9 @@ private:
 };
 
 
-using ocsstream = basic_osstream<std::char_traits<char>, std::allocator<char>, null_terminated_t<true>{}>;
-using osstream = basic_osstream<std::char_traits<char>, std::allocator<char>, null_terminated_t<false>{}>;
-using ostdsstream = basic_ostdsstream<std::char_traits<char>, std::allocator<char>>;
+using ocstrstream = basic_ostrstream<std::char_traits<char>, std::allocator<char>, null_terminated_t<true>{}>;
+using ostrstream = basic_ostrstream<std::char_traits<char>, std::allocator<char>, null_terminated_t<false>{}>;
+using ostdstrstream = basic_ostdstrstream<std::char_traits<char>, std::allocator<char>>;
 
 using ocstrspanstream = basic_ostrspanstream<std::char_traits<char>, null_terminated_t<true>{}>;
 using ostrspanstream = basic_ostrspanstream<std::char_traits<char>, null_terminated_t<false>{}>;
