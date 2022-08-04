@@ -131,7 +131,12 @@ public:
 #endif
     }
 private:
-    alignas(alignof(T)) unsigned char m_buf[sizeof(T)];
+    // fix for bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=43976
+    struct alignas(T) storage
+    { 
+        unsigned char s[sizeof(T)]; 
+    }
+    m_buf;
 };
 
 
