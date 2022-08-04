@@ -9,6 +9,7 @@ ReleaseWithAssert/
 *.vcxproj.user
 *.psess
 *.vspx
+*.vsp
 
 # testing
 a.out
