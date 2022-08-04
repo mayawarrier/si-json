@@ -126,7 +126,7 @@ public:
     // member functions are called on the stream.
     inline memspan<char> outdata(void) noexcept
     {
-        return { m_buf.begin(), m_buf.begin() + m_pos };
+        return { m_buf.pbegin(), m_buf.pbegin() + m_pos };
     }
 
     // Span of the underlying storage from 0 to outpos().
@@ -135,7 +135,7 @@ public:
     // member functions are called on the stream.
     inline memspan<const char> outdata(void) const noexcept
     {
-        return { m_buf.begin(), m_buf.begin() + m_pos };
+        return { m_buf.pbegin(), m_buf.pbegin() + m_pos };
     }
 
 private:

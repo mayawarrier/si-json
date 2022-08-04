@@ -26,8 +26,8 @@ private:
     ifilestream(internal::file&& file, std::size_t bufsize) :
         m_file(std::move(file)),
         m_buf{ iutil::uround_up(bufsize, internal::file::SYS_BUFSIZE) },
-        m_buf_cur(m_buf.begin()),
-        m_buf_last(m_buf.begin()),
+        m_buf_cur(m_buf.pbegin()),
+        m_buf_last(m_buf.pbegin()),
         m_buf_eof(false),
         m_posn(0)
     {
@@ -96,7 +96,7 @@ public:
     inline void rewind(void)
     {
         if (m_posn == buf_used())
-            m_buf_cur = m_buf.begin();
+            m_buf_cur = m_buf.pbegin();
         else 
         {   // refilled buffer before
             m_file.rewind();
@@ -117,7 +117,7 @@ public:
 
 private:
     inline std::size_t buf_avail(void) const noexcept { return (std::size_t)(m_buf_last + 1 - m_buf_cur); }
-    inline std::size_t buf_used(void) const noexcept { return (std::size_t)(m_buf_cur - m_buf.begin()); }
+    inline std::size_t buf_used(void) const noexcept { return (std::size_t)(m_buf_cur - m_buf.pbegin()); }
 
     // Throws on I/O failure.
     // Sets buf_eof if further refills are unnecessary.
@@ -126,23 +126,27 @@ private:
     {
         if (m_buf_eof) return 0;
 
-        std::size_t nread = m_file.read(m_buf.begin(), m_buf.capacity());
+        std::size_t nread = m_file.read(m_buf.pbegin(), m_buf.capacity());
         if (m_file.error())
             throw std::runtime_error(std::string("Could not read from ") + m_file.path());
 
-        m_buf_last = nread > 0 ? m_buf.begin() + nread - 1 : m_buf.begin();
-        m_buf_cur = m_buf.begin();
+        m_buf_last = nread > 0 ? m_buf.pbegin() + nread - 1 : m_buf.pbegin();
+        m_buf_cur = m_buf.pbegin();
 
-        if (nread < m_buf.capacity()) 
+        if (nread < m_buf.capacity())
+        {
+            // ensure last byte is read
+            if (nread > 0) m_buf_last++;
             m_buf_eof = true;
+        }
 
         return nread;
     }
 
     inline void reset_buf(void)
     {
-        m_buf_cur = m_buf.begin();
-        m_buf_last = m_buf.begin();
+        m_buf_cur = m_buf.pbegin();
+        m_buf_last = m_buf.pbegin();
         m_buf_eof = false;
     }
 
@@ -163,7 +167,7 @@ private:
     ofilestream(internal::file&& file, std::size_t bufsize) :
         m_file(std::move(file)),
         m_buf{ iutil::uround_up(bufsize, internal::file::SYS_BUFSIZE) },        
-        m_buf_cur(m_buf.begin()),
+        m_buf_cur(m_buf.pbegin()),
         m_posn(0)
     {
         if (bufsize == 0)
@@ -263,8 +267,8 @@ public:
     }
 
 private:
-    inline std::size_t buf_avail(void) const noexcept { return (std::size_t)(m_buf.end() - m_buf_cur); }
-    inline std::size_t buf_pending(void) const noexcept { return (std::size_t)(m_buf_cur - m_buf.begin()); }
+    inline std::size_t buf_avail(void) const noexcept { return (std::size_t)(m_buf.pend() - m_buf_cur); }
+    inline std::size_t buf_pending(void) const noexcept { return (std::size_t)(m_buf_cur - m_buf.pbegin()); }
     
     inline std::runtime_error fwrite_error(void)
     {
@@ -276,7 +280,7 @@ private:
     {       
         auto npending = buf_pending();
 
-        auto nwrote = m_file.write(m_buf.begin(), npending);
+        auto nwrote = m_file.write(m_buf.pbegin(), npending);
         if (nwrote != npending)
         {
             if (throw_on_error)
@@ -284,7 +288,7 @@ private:
             else return false;
         }
 
-        m_buf_cur = m_buf.begin();
+        m_buf_cur = m_buf.pbegin();
         return true;
     }
 

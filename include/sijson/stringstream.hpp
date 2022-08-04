@@ -9,15 +9,17 @@
 #include <stdexcept>
 #include <type_traits>
 
+#include "internal/config.hpp"
 #include "internal/util.hpp"
 #include "internal/buffers.hpp"
 
 #include "common.hpp"
 #include "memorystream.hpp"
 
-#ifdef SIJSON_HAS_STRING_VIEW
+#if SIJSON_HAS_STRING_VIEW
 #include <string_view>
 #endif
+
 
 namespace sijson {
 
@@ -25,7 +27,7 @@ namespace sijson {
 class istrstream : public imemstream
 {
 public:
-#ifdef SIJSON_HAS_STRING_VIEW
+#if SIJSON_HAS_STRING_VIEW
     template <typename Traits>
     istrstream(std::basic_string_view<char, Traits> src) :
         imemstream(src.data(), src.size())
@@ -161,10 +163,10 @@ public:
 
         if (is_null_terminated)
         {
-            Traits::assign(m_buf.end() - 1, count, c);
+            Traits::assign(m_buf.pend() - 1, count, c);
             Traits::assign(m_buf[m_buf.length() + count - 1], '\0');
         }
-        else Traits::assign(m_buf.end(), count, c);
+        else Traits::assign(m_buf.pend(), count, c);
 
         m_buf.commit(count);
     }
@@ -178,10 +180,10 @@ public:
 
         if (is_null_terminated)
         {
-            Traits::copy(m_buf.end() - 1, str, count);
+            Traits::copy(m_buf.pend() - 1, str, count);
             Traits::assign(m_buf[m_buf.length() + count - 1], '\0');
         }
-        else Traits::copy(m_buf.end(), str, count);
+        else Traits::copy(m_buf.pend(), str, count);
             
         m_buf.commit(count);
     }
@@ -201,7 +203,7 @@ public:
     // member functions are called on the stream.
     inline memspan<char> outdata(void) noexcept 
     {
-        return { m_buf.begin(), m_buf.end() - is_null_terminated }; 
+        return { m_buf.pbegin(), m_buf.pend() - is_null_terminated };
     }
 
     // Span of the underlying storage from 0 to outpos().
@@ -210,12 +212,12 @@ public:
     // member functions are called on the stream.
     inline memspan<const char> outdata(void) const noexcept 
     {
-        return { m_buf.begin(), m_buf.end() - is_null_terminated };
+        return { m_buf.pbegin(), m_buf.pend() - is_null_terminated };
     }
 
     // Get underlying string (immutable).
     // Result is null-terminated if is_null_terminated is true.
-    inline const char* str(void) const noexcept { return m_buf.begin(); }
+    inline const char* str(void) const noexcept { return m_buf.pbegin(); }
 
 private:
     inline void init(void) noexcept
