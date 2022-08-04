@@ -248,9 +248,9 @@ inline std::size_t recommend_allocn_size(Allocator& alloc, std::size_t size)
     constexpr std::size_t value_alignment =
         sizeof(T) < alignment ? alignment / sizeof(T) : 1;
 
-    if (size > max_size - value_alignment)
+    if (size > max_size - value_alignment + 1)
         return max_size;
-    auto aligned = (size + value_alignment) & ~value_alignment;
+    auto aligned = (size + value_alignment - 1) & ~(value_alignment - 1);
 
     if (aligned > max_size)
         return max_size;
