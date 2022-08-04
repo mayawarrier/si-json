@@ -74,7 +74,7 @@ struct memspan
         // Check if U* is implicitly convertible to T*
         // via cv-qualification conversion only
         // https://stackoverflow.com/questions/42992663/
-        iutil::require_t<std::is_convertible<U(*)[], T(*)[]>::value> = 0
+        iutil::enable_if_t<std::is_convertible<U(*)[], T(*)[]>::value, int> = 0
     >
     constexpr memspan(const memspan<U>& rhs) noexcept :
         begin(rhs.begin), end(rhs.end)

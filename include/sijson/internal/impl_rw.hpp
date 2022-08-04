@@ -84,7 +84,7 @@ template <> inline void rw_util::assert_rule<DOCNODE_key, DOCNODE_value>(doc_nod
 
 
 
-template <typename AllocatorPolicy>
+template <typename Allocator>
 class rw_base : public rw_util
 {
 protected:
@@ -125,7 +125,7 @@ protected:
 
 protected:
     std::stack<node_info, std::deque<node_info,
-        iutil::rebind_alloc_t<AllocatorPolicy, node_info>>> m_nodes;
+        iutil::rebind_alloc_t<Allocator, node_info>>> m_nodes;
 };
 
 static const char EXSTR_multi_root[] = "Document cannot have more than one root element.";

@@ -31,10 +31,10 @@ struct is_istream : std::false_type {};
 //
 template <typename T>
 struct is_istream<T, iutil::void_t<
-    iutil::require_same_t<decltype(std::declval<T>().peek()), char>,
-    iutil::require_same_t<decltype(std::declval<T>().take()), char>,
-    iutil::require_same_t<decltype(std::declval<T>().inpos()), std::size_t>,
-    iutil::require_same_t<decltype(std::declval<T>().end()), bool>>> : std::true_type
+    iutil::enable_if_same_t<decltype(std::declval<T>().peek()), char>,
+    iutil::enable_if_same_t<decltype(std::declval<T>().take()), char>,
+    iutil::enable_if_same_t<decltype(std::declval<T>().inpos()), std::size_t>,
+    iutil::enable_if_same_t<decltype(std::declval<T>().end()), bool>>> : std::true_type
 {};
 
 template <typename, typename = void>
@@ -59,7 +59,7 @@ struct is_ostream<T, iutil::void_t<
     decltype(std::declval<T>().put(std::declval<char>(), std::declval<std::size_t>())),
     decltype(std::declval<T>().putn(std::declval<const char*>(), std::declval<std::size_t>())),
     decltype(std::declval<T>().flush()),
-    iutil::require_same_t<decltype(std::declval<T>().outpos()), std::size_t>>> : std::true_type
+    iutil::enable_if_same_t<decltype(std::declval<T>().outpos()), std::size_t>>> : std::true_type
 {};
 
 template <typename, typename = void>
@@ -76,8 +76,8 @@ struct is_idata_spannable : std::false_type {};
 //
 template <typename T>
 struct is_idata_spannable<T, iutil::void_t<
-    iutil::require_same_t<decltype(std::declval<const T>().inlength()), std::size_t>,
-    iutil::require_same_t<decltype(std::declval<const T>().indata()), memspan<const char>>>> : std::true_type
+    iutil::enable_if_same_t<decltype(std::declval<const T>().inlength()), std::size_t>,
+    iutil::enable_if_same_t<decltype(std::declval<const T>().indata()), memspan<const char>>>> : std::true_type
 {};
 
 template <typename, typename = void>
@@ -86,13 +86,13 @@ struct is_odata_spannable : std::false_type {};
 //
 // is_odata_spannable<T>::value is true if T implements:
 // - memspan<const char> outdata() const;
-// --- A span of all the data sent to output. Does not require the data to be
-// --- flushed. For example, for an output stream, this should return a span
+// --- A span of all the data pending or sent to the output device.
+// --- For example, for an output stream, this should return a span
 // --- from position 0 to outpos().
 //
 template <typename T>
 struct is_odata_spannable<T, iutil::void_t<
-    iutil::require_same_t<decltype(std::declval<const T>().outdata()), memspan<const char>>>> : std::true_type
+    iutil::enable_if_same_t<decltype(std::declval<const T>().outdata()), memspan<const char>>>> : std::true_type
 {};
 
 }

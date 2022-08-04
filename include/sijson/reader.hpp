@@ -101,7 +101,7 @@ public:
     // If quoted is false, quotes are not
     // treated as string delimiters.
     template <typename Ostream>
-    inline void read_string(Ostream& os, bool quoted = true);
+    inline void read_string_into(Ostream& os, bool quoted = true);
 
     // Read string into output stream, or read null.
     // If token is string, calls get_os(), writes the string to it, and returns
@@ -167,28 +167,28 @@ private:
 
     struct read_t_impl
     {
-        template <typename T, iutil::require_t<iutil::is_nb_signed_integral<T>::value> = 0>
+        template <typename T, iutil::enable_if_t<iutil::is_nb_signed_integral<T>::value, int> = 0>
         static inline T read(raw_ascii_reader& r) { return r.read_intg_t<T>(); }
 
-        template <typename T, iutil::require_t<iutil::is_nb_unsigned_integral<T>::value> = 0>
+        template <typename T, iutil::enable_if_t<iutil::is_nb_unsigned_integral<T>::value, int> = 0>
         static inline T read(raw_ascii_reader& r) { return r.read_uintg_t<T>(); }
 
-        template <typename T, iutil::require_same_t<T, float> = 0>
+        template <typename T, iutil::enable_if_same_t<T, float> = 0>
         static inline T read(raw_ascii_reader& r) { return r.read_float(); }
 
-        template <typename T, iutil::require_same_t<T, double> = 0>
+        template <typename T, iutil::enable_if_same_t<T, double> = 0>
         static inline T read(raw_ascii_reader& r) { return r.read_double(); }
 
-        template <typename T, iutil::require_same_t<T, number> = 0>
+        template <typename T, iutil::enable_if_same_t<T, number> = 0>
         static inline T read(raw_ascii_reader& r) { return r.read_number(); }
 
-        template <typename T, iutil::require_same_t<T, bool> = 0>
+        template <typename T, iutil::enable_if_same_t<T, bool> = 0>
         static inline T read(raw_ascii_reader& r) { return r.read_bool(); }
 
-        template <typename T, iutil::require_t<iutil::is_instance_of_basic_string<T, char>::value> = 0>
+        template <typename T, iutil::enable_if_t<iutil::is_instance_of_basic_string<T, char>::value> = 0>
         static inline T read(raw_ascii_reader& r) { return r.read_string(); }
 
-        template <typename T, iutil::require_same_t<T, std::nullptr_t> = 0>
+        template <typename T, iutil::enable_if_same_t<T, std::nullptr_t> = 0>
         static inline T read(raw_ascii_reader& r) { r.read_null(); return nullptr; }
     };
 
@@ -201,8 +201,8 @@ private:
 // ASCII JSON reader.
 template <typename Istream,
     // Allocator type used for internal purposes/book-keeping.
-    typename AllocatorPolicy = std::allocator<void>>
-class ascii_reader : public internal::rw_base<AllocatorPolicy>
+    typename Allocator = std::allocator<void>>
+class ascii_reader : public internal::rw_base<Allocator>
 {
 public:
     ascii_reader(Istream& stream) :
@@ -261,9 +261,9 @@ public:
     // Read object key with custom traits/allocator.
     // String is unescaped.
     template <
-        typename Traits,
-        typename Allocator = std::allocator<char>>
-        inline std::basic_string<char, Traits, Allocator> read_key(void);
+        typename StrTraits,
+        typename StrAllocator = std::allocator<char>>
+        inline std::basic_string<char, StrTraits, StrAllocator> read_key(void);
 
     // Read object key of custom type.
     // DestString must be a std::basic_string.
@@ -278,8 +278,8 @@ public:
 
     // Read object key.
     // Throws if key (after unescaping) does not match expected_key.
-    template <typename Traits, typename Allocator>
-    void read_key(const std::basic_string<char, Traits, Allocator>& expected_key);
+    template <typename ...Ts>
+    void read_key(const std::basic_string<char, Ts...>& expected_key);
 
     // Read object key.
     // Throws if key (after unescaping) does not match expected_key.
@@ -314,8 +314,8 @@ public:
 
     // Read object key-value pair.
     // Throws if key (after unescaping) does not match expected_key.
-    template <typename KeyTraits, typename KeyAllocator, typename Value>
-    inline void read_key_value(const std::basic_string<char, KeyTraits, KeyAllocator>& expected_key, Value& out_value)
+    template <typename Value, typename ...Ts>
+    inline void read_key_value(const std::basic_string<char, Ts...>& expected_key, Value& out_value)
     {
         read_key(expected_key);
         read_value(out_value);
@@ -806,7 +806,7 @@ fail:
 
 template <typename Istream>
 template <typename Ostream>
-inline void raw_ascii_reader<Istream>::read_string(Ostream& os, bool quoted)
+inline void raw_ascii_reader<Istream>::read_string_into(Ostream& os, bool quoted)
 {
     if (quoted)
         read_string_impl(m_stream, os);
@@ -818,8 +818,8 @@ inline void raw_ascii_reader<Istream>::read_string(Ostream& os, bool quoted)
     }
 }
 
-template <typename Istream, typename AllocatorPolicy>
-inline void ascii_reader<Istream, AllocatorPolicy>::read_separator(void)
+template <typename Istream, typename Allocator>
+inline void ascii_reader<Istream, Allocator>::read_separator(void)
 {
     if (this->m_nodes.top().has_children)
     {
@@ -836,23 +836,23 @@ inline void ascii_reader<Istream, AllocatorPolicy>::read_separator(void)
         m_rr.read_key_separator();
 }
 
-template <typename Istream, typename AllocatorPolicy>
-template <typename Traits, typename Allocator>
-inline std::basic_string<char, Traits, Allocator> ascii_reader<Istream, AllocatorPolicy>::read_key(void)
+template <typename Istream, typename Allocator>
+template <typename StrTraits, typename StrAllocator>
+inline std::basic_string<char, StrTraits, StrAllocator> ascii_reader<Istream, Allocator>::read_key(void)
 {
     this->template assert_rule<DOCNODE_key>();
 
     read_separator();
-    auto str = m_rr.template read_string<Traits, Allocator>();
+    auto str = m_rr.template read_string<StrTraits, StrAllocator>();
 
     this->m_nodes.push({ DOCNODE_key });
     // don't end_child_node(), key-value pair is incomplete
     return str;
 }
 
-template <typename Istream, typename AllocatorPolicy>
+template <typename Istream, typename Allocator>
 template <typename Traits, typename IsEndpFunc>
-inline bool ascii_reader<Istream, AllocatorPolicy>::read_key_impl(const char* str, IsEndpFunc is_endp, std::size_t& out_pos)
+inline bool ascii_reader<Istream, Allocator>::read_key_impl(const char* str, IsEndpFunc is_endp, std::size_t& out_pos)
 {
     this->template assert_rule<DOCNODE_key>();
 
@@ -860,7 +860,7 @@ inline bool ascii_reader<Istream, AllocatorPolicy>::read_key_impl(const char* st
     iutil::skip_ws(m_rr.stream(), out_pos);
 
     internal::streq_ostream<Traits, IsEndpFunc> os(str, is_endp);
-    m_rr.read_string(os);
+    m_rr.read_string_into(os);
 
     this->m_nodes.push({ DOCNODE_key });
     // don't end_child_node(), key-value pair is incomplete
@@ -868,19 +868,21 @@ inline bool ascii_reader<Istream, AllocatorPolicy>::read_key_impl(const char* st
     return os.str_is_equal();
 }
 
-template <typename Istream, typename AllocatorPolicy>
-template <typename Traits, typename Allocator>
-inline void ascii_reader<Istream, AllocatorPolicy>::read_key(const std::basic_string<char, Traits, Allocator>& expected_key)
+template <typename Istream, typename Allocator>
+template <typename ...Ts>
+inline void ascii_reader<Istream, Allocator>::read_key(const std::basic_string<char, Ts...>& expected_key)
 {
+    using StrTraits = typename std::basic_string<char, Ts...>::traits_type;
+
     auto is_endp = [&](const char* p) { return p == expected_key.data() + expected_key.size(); };
 
     std::size_t startpos;
-    if (!read_key_impl<Traits>(expected_key.data(), is_endp, startpos))
+    if (!read_key_impl<StrTraits>(expected_key.data(), is_endp, startpos))
         throw iutil::parse_error_exp(startpos, "string \"" + std::string(expected_key.data(), expected_key.length()) + "\"");
 }
 
-template <typename Istream, typename AllocatorPolicy>
-inline void ascii_reader<Istream, AllocatorPolicy>::read_key(const char* expected_key)
+template <typename Istream, typename Allocator>
+inline void ascii_reader<Istream, Allocator>::read_key(const char* expected_key)
 {
     auto is_endp = [](const char* p) { return *p == '\0'; };
 
@@ -889,8 +891,8 @@ inline void ascii_reader<Istream, AllocatorPolicy>::read_key(const char* expecte
         throw iutil::parse_error_exp(startpos, "string \"" + std::string(expected_key) + "\"");
 }
 
-template <typename Istream, typename AllocatorPolicy>
-inline void ascii_reader<Istream, AllocatorPolicy>::read_key(const char* expected_key, std::size_t length)
+template <typename Istream, typename Allocator>
+inline void ascii_reader<Istream, Allocator>::read_key(const char* expected_key, std::size_t length)
 {
     auto is_endp = [&](const char* p) { return p == expected_key + length; };
 
@@ -899,9 +901,9 @@ inline void ascii_reader<Istream, AllocatorPolicy>::read_key(const char* expecte
         throw iutil::parse_error_exp(startpos, "string \"" + std::string(expected_key, length) + "\"");
 }
 
-template <typename Istream, typename AllocatorPolicy>
+template <typename Istream, typename Allocator>
 template <typename Value>
-inline Value ascii_reader<Istream, AllocatorPolicy>::read_value(void)
+inline Value ascii_reader<Istream, Allocator>::read_value(void)
 {
     this->template assert_rule<DOCNODE_value>();
 
@@ -912,9 +914,9 @@ inline Value ascii_reader<Istream, AllocatorPolicy>::read_value(void)
     return value;
 }
 
-template <typename Istream, typename AllocatorPolicy>
+template <typename Istream, typename Allocator>
 template <typename Key, typename Value>
-inline std::pair<Key, Value> ascii_reader<Istream, AllocatorPolicy>::read_key_value(void)
+inline std::pair<Key, Value> ascii_reader<Istream, Allocator>::read_key_value(void)
 {
     static_assert(iutil::is_instance_of_basic_string<Key, char>::value, 
         "Key must be a std::basic_string with value_type char.");

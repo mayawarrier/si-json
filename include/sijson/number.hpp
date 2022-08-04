@@ -24,12 +24,12 @@ public:
 
 public:
     template <typename T,
-        iutil::require_t<iutil::is_nb_signed_integral<T>::value> = 0>
+        iutil::enable_if_t<iutil::is_nb_signed_integral<T>::value, int> = 0>
     number(T value) noexcept : m_intg(value), m_type(TYPE_intmax_t)
     {}
 
     template <typename T, 
-        iutil::require_t<iutil::is_nb_unsigned_integral<T>::value> = 0>
+        iutil::enable_if_t<iutil::is_nb_unsigned_integral<T>::value, int> = 0>
     number(T value) noexcept : m_uintg(value), m_type(TYPE_uintmax_t)
     {}
 

@@ -141,10 +141,10 @@ private:
 
     struct write_t_impl
     {
-        template <typename T, iutil::require_t<iutil::is_nb_signed_integral<T>::value> = 0>
+        template <typename T, iutil::enable_if_t<iutil::is_nb_signed_integral<T>::value> = 0>
         static inline void write(raw_ascii_writer& w, T val) { write_int_impl(w.m_stream, val); }
 
-        template <typename T, iutil::require_t<iutil::is_nb_unsigned_integral<T>::value> = 0>
+        template <typename T, iutil::enable_if_t<iutil::is_nb_unsigned_integral<T>::value> = 0>
         static inline void write(raw_ascii_writer& w, T val) { write_uint_impl(w.m_stream, val); }
 
         template <typename ...Ts>
@@ -167,8 +167,8 @@ private:
 // ASCII JSON writer.
 template <typename Ostream, 
     // Allocator type used for internal purposes/book-keeping.
-    typename AllocatorPolicy = std::allocator<void>>
-class ascii_writer : public internal::rw_base<AllocatorPolicy>
+    typename Allocator = std::allocator<void>>
+class ascii_writer : public internal::rw_base<Allocator>
 {
 public:
     ascii_writer(Ostream& stream) :
@@ -407,8 +407,8 @@ inline void raw_ascii_writer<Ostream>::write_string_from(Istream& is, bool quote
         m_stream.put('"');
 }
 
-template <typename Ostream, typename AllocatorPolicy>
-inline void ascii_writer<Ostream, AllocatorPolicy>::write_separator(void)
+template <typename Ostream, typename Allocator>
+inline void ascii_writer<Ostream, Allocator>::write_separator(void)
 {
     if (this->m_nodes.top().has_children)
     {
@@ -425,9 +425,9 @@ inline void ascii_writer<Ostream, AllocatorPolicy>::write_separator(void)
         m_rw.write_key_separator();
 }
 
-template <typename Ostream, typename AllocatorPolicy>
+template <typename Ostream, typename Allocator>
 template <typename Func>
-inline void ascii_writer<Ostream, AllocatorPolicy>::write_key_impl(Func do_write, bool is_null)
+inline void ascii_writer<Ostream, Allocator>::write_key_impl(Func do_write, bool is_null)
 {
     if (is_null) 
         throw std::invalid_argument("Key is null.");
@@ -441,9 +441,9 @@ inline void ascii_writer<Ostream, AllocatorPolicy>::write_key_impl(Func do_write
     // don't end_child_node(), key-value pair is incomplete
 }
 
-template <typename Ostream, typename AllocatorPolicy>
+template <typename Ostream, typename Allocator>
 template <typename Value>
-inline void ascii_writer<Ostream, AllocatorPolicy>::write_value_impl(const Value& value)
+inline void ascii_writer<Ostream, Allocator>::write_value_impl(const Value& value)
 {
     this->template assert_rule<DOCNODE_value>();
 
@@ -453,9 +453,9 @@ inline void ascii_writer<Ostream, AllocatorPolicy>::write_value_impl(const Value
     this->end_child_node();
 }
 
-template <typename Ostream, typename AllocatorPolicy>
+template <typename Ostream, typename Allocator>
 template <typename Value, typename Func>
-inline void ascii_writer<Ostream, AllocatorPolicy>::write_key_value_impl(
+inline void ascii_writer<Ostream, Allocator>::write_key_value_impl(
     Func do_write_key, bool is_key_null, const Value& value)
 {
     if (is_key_null) 

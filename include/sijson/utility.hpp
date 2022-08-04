@@ -8,6 +8,7 @@
 #include <string>
 #include <utility>
 
+#include "internal/config.hpp"
 #include "internal/util.hpp"
 
 #include "stringstream.hpp"
@@ -15,7 +16,7 @@
 #include "writer.hpp"
 #include "reader.hpp"
 
-#ifdef SIJSON_HAS_STRING_VIEW
+#if SIJSON_HAS_STRING_VIEW
 #include <string_view>
 #endif
 
@@ -61,7 +62,7 @@ inline DestString unescape_impl(Istream& is)
 
     basic_ostdstrstream<Traits, Allocator> os;
     raw_ascii_reader<Istream> reader(is);
-    reader.read_string(os, false);
+    reader.read_string_into(os, false);
 
     return std::move(os).str();
 }
@@ -120,7 +121,7 @@ inline Value to_value(const char* string, std::size_t length)
     return internal::to_value_impl<Value>(is);
 }
 
-#ifdef SIJSON_HAS_STRING_VIEW
+#if SIJSON_HAS_STRING_VIEW
 // Convert string to value.
 template <typename Value, typename Traits>
 inline Value to_value(std::basic_string_view<char, Traits> strview)
@@ -170,11 +171,11 @@ inline std::string escape(const char* string, std::size_t length)
     return escape_as<std::string>(string, length);
 }
 
-#ifdef SIJSON_HAS_STRING_VIEW
+#if SIJSON_HAS_STRING_VIEW
 // Escape to string of custom type.
 // DestString must be a std::basic_string.
 template <typename DestString, typename SrcStringView,
-    iutil::require_t<iutil::is_instance_of_basic_string_view<SrcStringView, char>::value> = 0>
+    iutil::enable_if_t<iutil::is_instance_of_basic_string_view<SrcStringView, char>::value> = 0>
     inline DestString escape_as(SrcStringView strview)
 {
     istrstream is(strview);
@@ -191,7 +192,7 @@ inline std::string escape(std::string_view strview)
 // Escape to string of custom type.
 // DestString must be a std::basic_string.
 template <typename DestString, typename SrcString,
-    iutil::require_t<iutil::is_instance_of_basic_string<SrcString, char>::value> = 0>
+    iutil::enable_if_t<iutil::is_instance_of_basic_string<SrcString, char>::value> = 0>
 inline DestString escape_as(const SrcString& string)
 {
     istdstrstream is(string);
@@ -238,11 +239,11 @@ inline std::string unescape(const char* string, std::size_t length)
     return unescape_as<std::string>(string, length);
 }
 
-#ifdef SIJSON_HAS_STRING_VIEW
+#if SIJSON_HAS_STRING_VIEW
 // Unescape to string of custom type.
 // DestString must be a std::basic_string.
 template <typename DestString, typename SrcStringView,
-    iutil::require_t<iutil::is_instance_of_basic_string_view<SrcStringView, char>::value> = 0>
+    iutil::enable_if_t<iutil::is_instance_of_basic_string_view<SrcStringView, char>::value> = 0>
     inline DestString unescape_as(SrcStringView strview)
 {
     istrstream is(strview);
@@ -259,7 +260,7 @@ inline std::string unescape(std::string_view strview)
 // Unescape to string of custom type.
 // DestString must be a std::basic_string.
 template <typename DestString, typename SrcString,
-    iutil::require_t<iutil::is_instance_of_basic_string<SrcString, char>::value> = 0>
+    iutil::enable_if_t<iutil::is_instance_of_basic_string<SrcString, char>::value> = 0>
     inline DestString unescape_as(const SrcString& string)
 {
     istdstrstream is(string);
