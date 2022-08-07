@@ -36,15 +36,6 @@ template <typename A, typename B, typename T = int>
 using enable_if_same_t = enable_if_t<std::is_same<A, B>::value, T>;
 
 
-template <bool B, typename T, T ValIfTrue, T ValIfFalse>
-struct conditional_constant : std::integral_constant<T, ValIfTrue> {};
-
-template <typename T, T ValIfTrue, T ValIfFalse>
-struct conditional_constant<false, T, ValIfTrue, ValIfFalse> 
-    : std::integral_constant<T, ValIfFalse> 
-{};
-
-
 // True if T is an instance of the template Templ.
 template <typename T, template <typename...> class Templ>
 struct is_instance_of : std::false_type {};
@@ -157,14 +148,14 @@ struct has_value_type : std::integral_constant<bool,
 
 // True if T is basic_string<CharT, ...>.
 template <typename T, typename CharT>
-using is_instance_of_basic_string = std::integral_constant<bool, conjunction<
-    is_instance_of<T, std::basic_string>, has_value_type<T, CharT>>::value>;
+using is_instance_of_basic_string = conjunction<
+    is_instance_of<T, std::basic_string>, has_value_type<T, CharT>>;
 
 #if SIJSON_HAS_STRING_VIEW
 // True if T is basic_string_view<CharT, ...>.
 template <typename T, typename CharT>
-using is_instance_of_basic_string_view = std::integral_constant<bool, conjunction<
-    is_instance_of<T, std::basic_string_view>, has_value_type<T, CharT>>::value>;
+using is_instance_of_basic_string_view = conjunction<
+    is_instance_of<T, std::basic_string_view>, has_value_type<T, CharT>>;
 #endif
 
 // True if T is a string type supported by this library for writing.
@@ -205,13 +196,18 @@ struct inherits_std_basic_ostream<T,
 
 
 // Max # of chars required to represent a numerical value as decimal text (includes sign).
-template <typename T>
-using max_chars10 = conditional_constant<
-    std::is_floating_point<T>::value, int,
+template <typename T, bool = std::is_floating_point<T>::value>
+struct max_chars10 : std::integral_constant<int,
     // max precision + exponent + sign + point + e
-    std::numeric_limits<T>::max_digits10 + (std::numeric_limits<int>::digits10 + 2) + 3,
+    std::numeric_limits<T>::max_digits10 + (std::numeric_limits<int>::digits10 + 2) + 3>
+{};
+
+// Max # of chars required to represent a numerical value as decimal text (includes sign).
+template <typename T>
+struct max_chars10<T, false> : std::integral_constant<int,
     // round up digits10 + sign
-    std::numeric_limits<T>::digits10 + 1 + std::is_signed<T>::value>;
+    std::numeric_limits<T>::digits10 + 1 + std::is_signed<T>::value>
+{};
 
 
 template <typename T>
@@ -292,17 +288,18 @@ inline bool is_ws(char c) noexcept
 
 inline char to_lower(char c) noexcept { return c >= 'A' && c <= 'Z' ? c - ('A' - 'a') : c; }
 
-template <typename const_iterator, typename pred>
-inline bool starts_with(const_iterator str_begin,
-    const_iterator str_end, const std::string& needle, pred is_equal)
+template <typename ConstIterator, typename CharT, typename Pred>
+inline bool starts_with(ConstIterator str_begin, ConstIterator str_end, 
+    const CharT* prefix, std::size_t prefix_size, Pred is_equal)
 {
     assert(str_end >= str_begin);
-    auto str = str_begin;
-    for (std::size_t i = 0; i < needle.length(); ++i)
+
+    auto strp = str_begin;
+    for (std::size_t i = 0; i < prefix_size; ++i)
     {
-        if (str == str_end) return false;
-        if (!is_equal(*str, needle[i])) return false;
-        str++;
+        if (strp == str_end) return false;
+        if (!is_equal(*strp, prefix[i])) return false;
+        strp++;
     }
     return true;
 }
@@ -330,9 +327,17 @@ inline std::runtime_error parse_error(std::size_t pos, const std::string& messag
 {
     return std::runtime_error("Parse error at offset " + std::to_string(pos) + ": " + message);
 }
+inline std::runtime_error parse_error(std::size_t pos, const char* message)
+{
+    return std::runtime_error("Parse error at offset " + std::to_string(pos) + ": " + message);
+}
 inline std::runtime_error parse_error_exp(std::size_t pos, const std::string& expected)
 {
     return parse_error(pos, "expected " + expected);
+}
+inline std::runtime_error parse_error_exp(std::size_t pos, const char* message)
+{
+    return std::runtime_error("Parse error at offset " + std::to_string(pos) + ": expected " + message);
 }
 }}
 

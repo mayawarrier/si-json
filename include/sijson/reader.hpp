@@ -75,11 +75,11 @@ public:
 
     // Read string with custom traits/allocator. String is unescaped.
     template <
-        typename Traits,
-        typename Allocator = std::allocator<char>>
-        inline std::basic_string<char, Traits, Allocator> read_string(void)
+        typename StrTraits,
+        typename StrAllocator = std::allocator<char>>
+        inline std::basic_string<char, StrTraits, StrAllocator> read_string(void)
     {
-        basic_ostdstrstream<Traits, Allocator> os;
+        basic_ostdstrstream<StrTraits, StrAllocator> os;
         read_string_impl(m_stream, os);
         return std::move(os).str();
     }
@@ -519,8 +519,8 @@ inline bool raw_ascii_reader<Istream>::read_floating_impl(Osstream& numstream, F
         return false;
 
     auto strdata = numstream.outdata();
-    auto str_begin = strdata.begin;
-    auto str_end = strdata.end;
+    auto* str_begin = strdata.begin;
+    auto* str_end = strdata.end;
 
     bool neg = false;
     if (CheckNanInfHex)
@@ -528,16 +528,17 @@ inline bool raw_ascii_reader<Istream>::read_floating_impl(Osstream& numstream, F
         // skip '-'
         if (*str_begin == '-') {
             neg = true; str_begin++;
+            // only sign?
             if (numstream.outpos() == 1)
                 return false;
         }
 
-        auto is_ci_equal = [](char lhs, char rhs) {
+        auto ci_equal = [](char lhs, char rhs) {
             return rhs == iutil::to_lower(lhs);
         };
-        if (iutil::starts_with(str_begin, str_end, "0x", is_ci_equal) ||
-            iutil::starts_with(str_begin, str_end, "nan", is_ci_equal) ||
-            iutil::starts_with(str_begin, str_end, "inf", is_ci_equal))
+        if (iutil::starts_with(str_begin, str_end, "0x", 2, ci_equal) ||
+            iutil::starts_with(str_begin, str_end, "nan", 3, ci_equal) ||
+            iutil::starts_with(str_begin, str_end, "inf", 3, ci_equal))
             return false;
     }
 
