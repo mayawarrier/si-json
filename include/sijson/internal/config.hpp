@@ -2,6 +2,8 @@
 #ifndef SIJSON_CONFIG
 #define SIJSON_CONFIG
 
+#include <cstddef>
+
 #ifdef _MSC_VER
 #define SIJSON_CPLUSPLUS _MSVC_LANG
 #else
@@ -23,23 +25,57 @@
 #endif
 
 
-#include <string>
-#if defined(__cpp_lib_string_view) || SIJSON_CPLUSPLUS >= 201703L
+#if SIJSON_HAS_INCLUDE(<version>)
+#include <version>
+#endif
+
+
+#if SIJSON_HAS_INCLUDE(<string_view>) && SIJSON_CPLUSPLUS >= 201703L
 #define SIJSON_HAS_STRING_VIEW 1
 #else
 #define SIJSON_HAS_STRING_VIEW 0
 #endif
 
 
-// Is std::launder required to access an object in byte storage 
-// whose size and alignment is exactly equal to the object stored?
+#if SIJSON_HAS_INCLUDE(<optional>) && SIJSON_CPLUSPLUS >= 201703L
+#define SIJSON_HAS_OPTIONAL 1
+#else
+#define SIJSON_HAS_OPTIONAL 0
+#endif
+
+
+#if defined(__cpp_lib_byte) || SIJSON_CPLUSPLUS >= 201703L
+#define SIJSON_HAS_STDBYTE 1
+#else
+#define SIJSON_HAS_STDBYTE 0
+#endif
+
+
+#if SIJSON_HAS_INCLUDE(<cxxabi.h>)
+#define SIJSON_HAS_CXXABI_H 1
+#else
+#define SIJSON_HAS_CXXABI_H 0
+#endif
+
+
+// Is std::launder required to access an object in properly aligned 
+// byte storage whose size is at least that of the object stored?
 // https://en.cppreference.com/w/cpp/types/aligned_storage
 // https://stackoverflow.com/a/70419156
-// This is false for most or all compilers and is disabled by default.
+// This is false for most or all compilers so is disabled by default.
 // Enabling it may incur a performance penalty in GCC.
 //
 #ifndef SIJSON_USE_LAUNDER_TO_ACCESS_ALIGNED_BYTE_STORAGE
 #define SIJSON_USE_LAUNDER_TO_ACCESS_ALIGNED_BYTE_STORAGE 0
+#endif
+
+
+// If enabled, logic_errors will be preferred over assert()s to report 
+// preventable error conditions.
+// This can result in signficant runtime overhead so is disabled by default.
+//
+#ifndef SIJSON_PREFER_LOGIC_ERRORS
+#define SIJSON_PREFER_LOGIC_ERRORS 0
 #endif
 
 #endif

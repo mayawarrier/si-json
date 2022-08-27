@@ -4,15 +4,12 @@
 
 #include <cassert>
 #include <bitset>
-#include <type_traits>
-#include <memory>
-#include <iostream>
 #include <string>
 #include <stack>
 #include <deque>
 #include <stdexcept>
 
-#include "common.hpp"
+#include "core.hpp"
 #include "util.hpp"
 
 
@@ -21,67 +18,52 @@ namespace internal {
 
 class rw_util
 {
+public:
+    static constexpr const char* EXSTR_multi_root = "Document cannot have more than one root element.";
+
 protected:
     struct node_info
     {
-        const doc_node_t type;
+        const doc_node_type type;
         bool has_children;
 
-        node_info(doc_node_t type) :
+        node_info(doc_node_type type) :
             type(type), has_children(false)
-        {
-            assert(type < NUM_DOCNODE_TYPES);
-        }
+        {}
     };
 
-    static inline std::runtime_error
-        bad_top_node_error(const std::bitset<NUM_DOCNODE_TYPES> expected)
+    static inline void assert_type(doc_node_type type, doc_node_type expected)
     {
-        std::string msg = "Expected parent node to be ";
-        if (expected.count() > 1)
-            msg += "one of ";
-
-        for (std::size_t i = 0; i < expected.size(); ++i)
-        {
-            if (!msg.empty()) msg += ", ";
-            if (expected[i])
-                msg += doc_node_name((doc_node_t)i);
-        }
-        return std::runtime_error(msg);
-    }
-
-    static inline std::runtime_error bad_top_node_error(doc_node_t expected)
-    {
-        return std::runtime_error(
-            std::string("Expected parent node to be ") + doc_node_name(expected));
-    }
-
-    static inline void assert_type(doc_node_t type,
-        const std::bitset<NUM_DOCNODE_TYPES> expected)
-    {
-        if (!expected[type])
-            throw bad_top_node_error(expected);
-    }
-
-    static inline void assert_type(doc_node_t type, doc_node_t expected)
-    {
+#if SIJSON_PREFER_LOGIC_ERRORS
         if (type != expected)
-            throw bad_top_node_error(expected);
+            throw std::logic_error(std::string("Expected parent node to be ") + doc_node_name(expected));
+#else
+        assert(type == expected);
+#endif
+    }
+    static inline void assert_type_before_value(doc_node_type type)
+    {
+        constexpr std::bitset<NUM_DOCNODE_TYPES> EXP_before_value
+        { 0x1 << DOCNODE_array | 0x1 << DOCNODE_key | 0x1 << DOCNODE_root };
+
+#if SIJSON_PREFER_LOGIC_ERRORS
+        if (!EXP_before_value[type])
+            throw std::runtime_error("Expected parent node to be one of array, key, or root.");
+#else
+        assert(EXP_before_value[type]);
+        (void)EXP_before_value;
+#endif
     }
 
-    template <doc_node_t ...types>
-    static inline void assert_rule(doc_node_t top_node);
+    template <doc_node_type ...types>
+    static inline void assert_rule(doc_node_type top_node);
 };
 
-static constexpr std::bitset<NUM_DOCNODE_TYPES> EXP_before_value
-{ 0x1 << DOCNODE_array | 0x1 << DOCNODE_key | 0x1 << DOCNODE_root };
-
-template <> inline void rw_util::assert_rule<DOCNODE_array>(doc_node_t type) { assert_type(type, EXP_before_value); }
-template <> inline void rw_util::assert_rule<DOCNODE_object>(doc_node_t type) { assert_type(type, EXP_before_value); }
-template <> inline void rw_util::assert_rule<DOCNODE_key>(doc_node_t type) { assert_type(type, DOCNODE_object); }
-template <> inline void rw_util::assert_rule<DOCNODE_value>(doc_node_t type) { assert_type(type, EXP_before_value); }
-template <> inline void rw_util::assert_rule<DOCNODE_key, DOCNODE_value>(doc_node_t type) { assert_type(type, DOCNODE_object); }
-
+template <> inline void rw_util::assert_rule<DOCNODE_array>(doc_node_type type) { assert_type_before_value(type); }
+template <> inline void rw_util::assert_rule<DOCNODE_object>(doc_node_type type) { assert_type_before_value(type); }
+template <> inline void rw_util::assert_rule<DOCNODE_key>(doc_node_type type) { assert_type(type, DOCNODE_object); }
+template <> inline void rw_util::assert_rule<DOCNODE_value>(doc_node_type type) { assert_type_before_value(type); }
+template <> inline void rw_util::assert_rule<DOCNODE_key, DOCNODE_value>(doc_node_type type) { assert_type(type, DOCNODE_object); }
 
 
 template <typename Allocator>
@@ -90,13 +72,13 @@ class rw_base : public rw_util
 protected:
     // Assert that appending these nodes to the
     // document will not make it invalid JSON.
-    template <doc_node_t ...types>
+    template <doc_node_type ...types>
     inline void assert_rule(void)
     {
         rw_util::assert_rule<types...>(m_nodes.top().type);
     }
 
-    template <doc_node_t type, typename Func>
+    template <doc_node_type type, typename Func>
     inline void start_node(Func read_or_write_node)
     {
         assert_rule<type>();
@@ -114,7 +96,7 @@ protected:
         m_nodes.top().has_children = true;
     }
 
-    template <doc_node_t type, typename Func>
+    template <doc_node_type type, typename Func>
     inline void end_node(Func read_or_write_node)
     {
         assert_type(m_nodes.top().type, type);
@@ -128,7 +110,7 @@ protected:
         iutil::rebind_alloc_t<Allocator, node_info>>> m_nodes;
 };
 
-static const char EXSTR_multi_root[] = "Document cannot have more than one root element.";
+
 
 }}
 

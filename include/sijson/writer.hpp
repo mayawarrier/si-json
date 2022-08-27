@@ -18,35 +18,40 @@
 #include "internal/buffers.hpp"
 #include "internal/impl_rw.hpp"
 
-#include "common.hpp"
+#include "core.hpp"
 #include "number.hpp"
 #include "stringstream.hpp"
-#include "stdstream.hpp"
+#include "encoding.hpp"
+#include "stream_adapters.hpp"
 
 
 namespace sijson {
 
-// Low-level ASCII JSON writer.
-template <typename Ostream>
-class raw_ascii_writer
+// Low-level JSON writer.
+template <encoding Encoding, typename Ostream>
+class raw_writer
 {
 private:
-    using JsonOstream = wrap_std_ostream_t<Ostream>;
+    using JsonOstream = sijson_ostream_t<Ostream>;    
+    using CharT = typename Ostream::char_type;
+    using Encoder = utf8; // for now
 
 public:
+    //using char_type = typename Ostream::char_type;
+    //using encoding_char_type = CharT;
     using stream_type = JsonOstream;
 
 public:
-    raw_ascii_writer(Ostream& stream) :
+    raw_writer(Ostream& stream) :
         m_stream(stream)
     {}
 
-    inline void write_start_object(void) { m_stream.put('{'); }
-    inline void write_end_object(void) { m_stream.put('}'); }
-    inline void write_start_array(void) { m_stream.put('['); }
-    inline void write_end_array(void) { m_stream.put(']'); }
-    inline void write_key_separator(void) { m_stream.put(':'); }
-    inline void write_item_separator(void) { m_stream.put(','); }
+    inline void write_start_object(void) { m_stream.put(0x7b); }
+    inline void write_end_object(void) { m_stream.put(0x7d); }
+    inline void write_start_array(void) { m_stream.put(0x5b); }
+    inline void write_end_array(void) { m_stream.put(0x5d); }
+    inline void write_key_separator(void) { m_stream.put(0x3a); }
+    inline void write_item_separator(void) { m_stream.put(0x2c); }
 
     inline void write_int32(std::int_least32_t value) { write_int_impl(m_stream, value); }
     inline void write_int64(std::int_least64_t value) { write_int_impl(m_stream, value); }
@@ -60,12 +65,17 @@ public:
 
     inline void write_bool(bool value)
     {
-        if (value) 
-            m_stream.putn("true", sizeof("true") - 1);
-        else m_stream.putn("false", sizeof("false") - 1);
+        constexpr const CharT strue[4] = { 0x74, 0x72, 0x75, 0x65 };
+        constexpr const CharT sfalse[5] = { 0x66, 0x61, 0x6c, 0x73, 0x65 };
+
+        value ? m_stream.putn(strue, 4) : m_stream.putn(sfalse, 5);
     }
 
-    inline void write_null(void) { m_stream.putn("null", sizeof("null") - 1); }
+    inline void write_null(void) 
+    {
+        constexpr const CharT snull[4] = { 0x6e, 0x75, 0x6c, 0x6c };
+        m_stream.putn(snull, 4); 
+    }
 
     // Write string from input stream.
     // String is escaped.
@@ -79,7 +89,7 @@ public:
     {
         if (value)
         {
-            icstrstream is(value);
+            istrstream is(value); // todo
             write_string_from(is);
         }
         else write_null();
@@ -116,17 +126,17 @@ public:
         write_t_impl::write(*this, value);
     }
 
-    inline void write_newline(void) { m_stream.put('\n'); }
+    inline void write_newline(void) { m_stream.put(0x0a); }
 
     inline void write_whitespace(std::size_t num_spaces)
     {
-        m_stream.put(' ', num_spaces);
+        m_stream.put(0x20, num_spaces);
     }
 
     // Get stream.
     inline stream_type& stream(void) noexcept { return m_stream; }
 
-    ~raw_ascii_writer(void) {
+    ~raw_writer(void) {
         try { m_stream.flush(); } catch (...) {}
     }
 
@@ -142,26 +152,29 @@ private:
     struct write_t_impl
     {
         template <typename T, iutil::enable_if_t<iutil::is_nb_signed_integral<T>::value> = 0>
-        static inline void write(raw_ascii_writer& w, T val) { write_int_impl(w.m_stream, val); }
+        static inline void write(raw_writer& w, T val) { write_int_impl(w.m_stream, val); }
 
         template <typename T, iutil::enable_if_t<iutil::is_nb_unsigned_integral<T>::value> = 0>
-        static inline void write(raw_ascii_writer& w, T val) { write_uint_impl(w.m_stream, val); }
+        static inline void write(raw_writer& w, T val) { write_uint_impl(w.m_stream, val); }
 
         template <typename ...Ts>
-        static inline void write(raw_ascii_writer& w, const std::basic_string<char, Ts...>& val) { w.write_string(val); }
+        static inline void write(raw_writer& w, const std::basic_string<char, Ts...>& val) { w.write_string(val); }
 
-        static inline void write(raw_ascii_writer& w, float val) { w.write_float(val); }
-        static inline void write(raw_ascii_writer& w, double val) { w.write_double(val); }
-        static inline void write(raw_ascii_writer& w, number val) { w.write_number(val); }
-        static inline void write(raw_ascii_writer& w, bool val) { w.write_bool(val); }
-        static inline void write(raw_ascii_writer& w, const char* val) { w.write_string(val); }
-        static inline void write(raw_ascii_writer& w, std::nullptr_t) { w.write_null(); }
+        static inline void write(raw_writer& w, float val) { w.write_float(val); }
+        static inline void write(raw_writer& w, double val) { w.write_double(val); }
+        static inline void write(raw_writer& w, number val) { w.write_number(val); }
+        static inline void write(raw_writer& w, bool val) { w.write_bool(val); }
+        static inline void write(raw_writer& w, const char* val) { w.write_string(val); }
+        static inline void write(raw_writer& w, std::nullptr_t) { w.write_null(); }
     };
 
 private:
-    wrap_std_ostream_t<Ostream&> m_stream;
+    sijson_ostream_t<Ostream&> m_stream;
 };
 
+// for now
+template <typename Ostream>
+using raw_ascii_writer = raw_writer<ENCODING_utf8, Ostream>;
 
 
 // ASCII JSON writer.
@@ -181,7 +194,7 @@ public:
     // For eg. if you call start_object(), parent_node()
     // returns DOCNODE_object until the next call to 
     // end_object() or start_array().
-    inline doc_node_t parent_node(void) const { return this->m_nodes.top().type; }
+    inline doc_node_type parent_node(void) const { return this->m_nodes.top().type; }
 
     // Start writing object.
     inline void start_object(void)
@@ -302,9 +315,9 @@ private:
 
 
 
-template <typename Ostream>
+template <encoding Encoding, typename Ostream>
 template <typename UintT>
-inline void raw_ascii_writer<Ostream>::write_uint_impl(JsonOstream& stream, UintT value)
+inline void raw_writer<Encoding, Ostream>::write_uint_impl(JsonOstream& stream, UintT value)
 {
     char strbuf[iutil::max_chars10<UintT>::value];
     const auto strbuf_end = strbuf + sizeof(strbuf);
@@ -312,16 +325,16 @@ inline void raw_ascii_writer<Ostream>::write_uint_impl(JsonOstream& stream, Uint
     auto strp = strbuf_end;
     do {
         // units first
-        *(--strp) = '0' + (char)(value % 10);
+        *(--strp) = (char)0x30 + (char)(value % 10);
         value /= 10;
     } while (value != 0);
 
     stream.putn(strp, strbuf_end - strp);
 }
 
-template <typename Ostream>
+template <encoding Encoding, typename Ostream>
 template <typename IntT>
-inline void raw_ascii_writer<Ostream>::write_int_impl(JsonOstream& stream, IntT value)
+inline void raw_writer<Encoding, Ostream>::write_int_impl(JsonOstream& stream, IntT value)
 {
     char strbuf[iutil::max_chars10<IntT>::value];
     const auto strbuf_end = strbuf + sizeof(strbuf);
@@ -330,7 +343,7 @@ inline void raw_ascii_writer<Ostream>::write_int_impl(JsonOstream& stream, IntT 
     auto strp = strbuf_end;
     do {
         // units first
-        *(--strp) = '0' + (char)(abs_value % 10);
+        *(--strp) = (char)0x30 + (char)(abs_value % 10);
         abs_value /= 10;
     } while (abs_value != 0);
 
@@ -340,9 +353,9 @@ inline void raw_ascii_writer<Ostream>::write_int_impl(JsonOstream& stream, IntT 
     stream.putn(strp, strbuf_end - strp);
 }
 
-template <typename Ostream>
+template <encoding Encoding, typename Ostream>
 template <typename FloatT>
-inline void raw_ascii_writer<Ostream>::write_floating_impl(JsonOstream& stream, FloatT value)
+inline void raw_writer<Encoding, Ostream>::write_floating_impl(JsonOstream& stream, FloatT value)
 {
     if (!std::isfinite(value))
         throw std::invalid_argument("Value is NAN or infinity.");
@@ -359,52 +372,58 @@ inline void raw_ascii_writer<Ostream>::write_floating_impl(JsonOstream& stream, 
     stream.putn(strdata.begin, strdata.size());
 }
 
-template <typename Ostream>
-inline void raw_ascii_writer<Ostream>::write_number_impl(JsonOstream& stream, number value)
+template <encoding Encoding, typename Ostream>
+inline void raw_writer<Encoding, Ostream>::write_number_impl(JsonOstream& stream, number value)
 {
     switch (value.type())
     {
         case number::TYPE_float:
-            write_floating_impl(stream, value.get_nothrow<float>());
+            write_floating_impl(stream, value.get_unsafe<float>());
             break;
         case number::TYPE_double:
-            write_floating_impl(stream, value.get_nothrow<double>());
+            write_floating_impl(stream, value.get_unsafe<double>());
             break;
         case number::TYPE_intmax_t:
-            write_int_impl(stream, value.get_nothrow<std::intmax_t>());
+            write_int_impl(stream, value.get_unsafe<std::intmax_t>());
             break;
         case number::TYPE_uintmax_t:
-            write_uint_impl(stream, value.get_nothrow<std::uintmax_t>());
+            write_uint_impl(stream, value.get_unsafe<std::uintmax_t>());
             break;
         default:
             assert(false); break;
     }
 }
 
-template <typename Ostream>
+template <encoding Encoding, typename Ostream>
 template <typename Istream>
-inline void raw_ascii_writer<Ostream>::write_string_from(Istream& is, bool quoted)
+inline void raw_writer<Encoding, Ostream>::write_string_from(Istream& is, bool quoted)
 {
-    if (quoted)
-        m_stream.put('"');
+    constexpr const CharT BS_escape[] = { 0x5c, 0x62 };
+    constexpr const CharT FF_escape[] = { 0x5c, 0x66 };
+    constexpr const CharT LF_escape[] = { 0x5c, 0x6e };
+    constexpr const CharT CR_escape[] = { 0x5c, 0x72 };
+    constexpr const CharT HT_escape[] = { 0x5c, 0x74 };
+    constexpr const CharT dquote_escape[] = { 0x5c, 0x22 };
+    constexpr const CharT bslash_escape[] = { 0x5c, 0x5c };
+
+    if (quoted) m_stream.put(0x22); // '"'
     while (!is.end())
     {
         char c = is.take();
         switch (c)
         {
-            case '\b': m_stream.putn("\\b", 2); break;
-            case '\f': m_stream.putn("\\f", 2); break;
-            case '\n': m_stream.putn("\\n", 2); break;
-            case '\r': m_stream.putn("\\r", 2); break;
-            case '\t': m_stream.putn("\\t", 2); break;
-            case '"':  m_stream.putn("\\\"", 2); break;
-            case '\\': m_stream.putn("\\\\", 2); break;
+            case 0x08: m_stream.putn(BS_escape, 2); break;
+            case 0x0c: m_stream.putn(FF_escape, 2); break;
+            case 0x0a: m_stream.putn(LF_escape, 2); break;
+            case 0x0d: m_stream.putn(CR_escape, 2); break;
+            case 0x09: m_stream.putn(HT_escape, 2); break;
+            case 0x22: m_stream.putn(dquote_escape, 2); break; // '"'
+            case 0x5c: m_stream.putn(bslash_escape, 2); break; // '\'
 
             default: m_stream.put(c); break;
         }
     }
-    if (quoted)
-        m_stream.put('"');
+    if (quoted) m_stream.put(0x22); // '"'
 }
 
 template <typename Ostream, typename Allocator>
@@ -416,7 +435,7 @@ inline void ascii_writer<Ostream, Allocator>::write_separator(void)
         {
             case DOCNODE_object:
             case DOCNODE_array: m_rw.write_item_separator(); break;
-            case DOCNODE_root: throw std::runtime_error(internal::EXSTR_multi_root);
+            case DOCNODE_root: throw std::runtime_error(this->EXSTR_multi_root);
             default: assert(false);
         }
     }

@@ -48,16 +48,20 @@ public:
     inline type_t type(void) const noexcept { return m_type; }
 
     // Get value.
-    // Throws if value held is not of type T.
+    // Throws if active value is not T.
     template <typename T>
     inline T get(void) const;
 
-    // Get value.
-    // Behavior is undefined if value held is not of type T.
+    // Get value, without checking if active value is T.
+    // If not T, calling this is undefined behavior.
     template <typename T>
-    inline T get_nothrow(void) const noexcept;
+    inline T get_unsafe(void) const noexcept;
 
-    // Get value, cast to type T.
+    // Gets value if active value is T, else returns nullptr.
+    template <typename T>
+    inline const T* get_if(void) const noexcept;
+
+    // Get active value, cast to T.
     template <typename T>
     inline T as(void) const noexcept;
 
@@ -81,44 +85,60 @@ private:
 template <> struct number::typehelper<float> 
 {
     static constexpr int typeidx = TYPE_float;
+
     static inline float get(const number& n) noexcept { return n.m_flt; }
+    static inline const float* cptr(const number& n) noexcept { return &n.m_flt; }
 };
 template <> struct number::typehelper<double> 
 {
     static constexpr int typeidx = TYPE_double;
+
     static inline double get(const number& n) noexcept { return n.m_dbl; }
+    static inline const double* cptr(const number& n) noexcept { return &n.m_dbl; }
 };
 template <> struct number::typehelper<std::intmax_t>
 {
     static constexpr int typeidx = TYPE_intmax_t;
+
     static inline std::intmax_t get(const number& n) noexcept { return n.m_intg; }
+    static inline const std::intmax_t* cptr(const number& n) noexcept { return &n.m_intg; }
 };
 template <> struct number::typehelper<std::uintmax_t>
 {
     static constexpr int typeidx = TYPE_uintmax_t;
+
     static inline std::uintmax_t get(const number& n) noexcept { return n.m_uintg; }
+    static inline const std::uintmax_t* cptr(const number& n) noexcept { return &n.m_uintg; }
 };
 
-// Get value.
-// Behavior is undefined if value held is not of type T.
+// Gets value if active value is T, else returns nullptr.
 template <typename T>
-inline T number::get_nothrow(void) const noexcept
+inline const T* number::get_if(void) const noexcept
+{
+    return typehelper<T>::typeidx == m_type ?
+        typehelper<T>::cptr() : nullptr;
+}
+
+// Get value, without checking if active value is T.
+// If not T, calling this is undefined behavior.
+template <typename T>
+inline T number::get_unsafe(void) const noexcept
 {
     return typehelper<T>::get(*this);
 }
 
 // Get value.
-// Throws if value held is not of type T.
+// Throws if active value is not T.
 template <typename T>
 inline T number::get(void) const
 {
     if (typehelper<T>::typeidx != m_type)
-        throw std::logic_error("Value held is not of type T");
+        throw std::logic_error("Active value is not T");
 
-    return get_nothrow<T>();
+    return typehelper<T>::get(*this);
 }
 
-// Get value, cast to type T.
+// Get active value, cast to type T.
 template <typename T>
 inline T number::as(void) const noexcept
 {

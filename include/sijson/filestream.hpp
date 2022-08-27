@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <stdexcept>
 
-#include "common.hpp"
+#include "core.hpp"
 #include "internal/util.hpp"
 #include "internal/impl_file.hpp"
 #include "internal/buffers.hpp"
@@ -22,6 +22,10 @@ namespace sijson {
 // Input file stream.
 class ifilestream
 {
+public:
+    using char_type = char;
+    using streamsize_type = std::size_t;
+
 private:
     ifilestream(internal::file&& file, std::size_t bufsize) :
         m_file(std::move(file)),
@@ -31,9 +35,12 @@ private:
         m_buf_eof(false),
         m_posn(0)
     {
+#if SIJSON_PREFER_LOGIC_ERRORS
         if (bufsize == 0)
-            throw std::invalid_argument("Buffer size is 0");
-
+            throw std::invalid_argument(std::string(__func__) + ": Buffer size is 0.");
+#else
+        assert(bufsize > 0);
+#endif
         if (!m_file.is_open())
             throw std::runtime_error(std::string("Could not open ") + m_file.path());
 
@@ -84,7 +91,7 @@ public:
     }
 
     // Get position.
-    inline std::size_t inpos(void) const noexcept { return m_posn; }
+    inline streamsize_type inpos(void) const noexcept { return m_posn; }
 
     // True if the last operation completed by reaching the end of the stream.
     inline bool end(void) const noexcept
@@ -156,13 +163,17 @@ private:
     char* m_buf_cur;
     char* m_buf_last; // always >= m_buf_cur
     bool m_buf_eof;
-    std::size_t m_posn;
+    streamsize_type m_posn;
 };
 
 
 // Output file stream.
 class ofilestream
 {
+public:
+    using char_type = char;
+    using streamsize_type = std::size_t;
+
 private:
     ofilestream(internal::file&& file, std::size_t bufsize) :
         m_file(std::move(file)),
@@ -170,9 +181,12 @@ private:
         m_buf_cur(m_buf.pbegin()),
         m_posn(0)
     {
+#if SIJSON_PREFER_LOGIC_ERRORS
         if (bufsize == 0)
-            throw std::invalid_argument("Buffer size is 0");
-
+            throw std::invalid_argument(std::string(__func__) + ": Buffer size is 0.");
+#else
+        assert(bufsize > 0);
+#endif
         if (!m_file.is_open())
             throw std::runtime_error(std::string("Could not open ") + m_file.path());
 
@@ -241,11 +255,11 @@ public:
     inline void flush(void)
     {
         if (!flush_buf<false>() || !m_file.flush())
-            throw std::runtime_error(std::string("Could not sync with ") + m_file.path());
+            throw std::runtime_error("Could not flush file buffer.");
     }
 
     // Get position.
-    inline std::size_t outpos(void) const noexcept { return m_posn; }
+    inline streamsize_type outpos(void) const noexcept { return m_posn; }
 
     // Flush stream and close file. Throws on failure.
     // Whether or not the operation succeeds,
@@ -353,7 +367,7 @@ private:
     internal::file m_file;
     internal::buffer<char> m_buf;
     char* m_buf_cur;
-    std::size_t m_posn;
+    streamsize_type m_posn;
 };
 
 }

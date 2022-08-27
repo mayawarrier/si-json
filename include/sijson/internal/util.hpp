@@ -6,7 +6,9 @@
 #ifndef SIJSON_INTERNAL_UTIL_HPP
 #define SIJSON_INTERNAL_UTIL_HPP
 
+#include <cstddef>
 #include <cassert>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -22,6 +24,10 @@
 
 #if SIJSON_HAS_STRING_VIEW
 #include <string_view>
+#endif
+
+#if SIJSON_HAS_CXXABI_H
+#include <cxxabi.h>
 #endif
 
 
@@ -40,8 +46,8 @@ using enable_if_same_t = enable_if_t<std::is_same<A, B>::value, T>;
 template <typename T, template <typename...> class Templ>
 struct is_instance_of : std::false_type {};
 
-template <typename ...Templ_args, template <typename...> class Templ>
-struct is_instance_of<Templ<Templ_args...>, Templ> : std::true_type {};
+template <typename ...TemplArgs, template <typename...> class Templ>
+struct is_instance_of<Templ<TemplArgs...>, Templ> : std::true_type {};
 
 
 #if defined (__cpp_lib_logical_traits) || SIJSON_CPLUSPLUS >= 201703L
@@ -92,6 +98,17 @@ using remove_cvref_t = typename std::remove_cv<
     typename std::remove_reference<T>::type>::type;
 #endif
 
+template <typename T>
+using remove_reference_t = typename std::remove_reference<T>::type;
+
+
+// https://en.cppreference.com/w/cpp/utility/in_place
+struct in_place_t
+{
+    constexpr explicit in_place_t() = default;
+};
+static constexpr in_place_t in_place{};
+
 
 static constexpr auto int32_max = 0x7FFFFFFF;
 static constexpr auto int32_min = -0x7FFFFFFF - 1;
@@ -101,17 +118,31 @@ static constexpr auto int64_max = 0x7FFFFFFFFFFFFFFF;
 static constexpr auto int64_min = -0x7FFFFFFFFFFFFFFF - 1;
 static constexpr auto uint64_max = 0xFFFFFFFFFFFFFFFF;
 
-template <typename T> struct least_t_exp_min {};
-template <> struct least_t_exp_min<std::int_least32_t> : std::integral_constant<std::int_least32_t, int32_min> {};
-template <> struct least_t_exp_min<std::int_least64_t> : std::integral_constant<std::int_least64_t, int64_min> {};
-template <> struct least_t_exp_min<std::uint_least32_t> : std::integral_constant<std::uint_least32_t, 0> {};
-template <> struct least_t_exp_min<std::uint_least64_t> : std::integral_constant<std::uint_least64_t, 0> {};
 
-template <typename T> struct least_t_exp_max {};
-template <> struct least_t_exp_max<std::int_least32_t> : std::integral_constant<std::int_least32_t, int32_max> {};
-template <> struct least_t_exp_max<std::int_least64_t> : std::integral_constant<std::int_least64_t, int64_max> {};
-template <> struct least_t_exp_max<std::uint_least32_t> : std::integral_constant<std::uint_least32_t, uint32_max> {};
-template <> struct least_t_exp_max<std::uint_least64_t> : std::integral_constant<std::uint_least64_t, uint64_max> {};
+template <typename T>
+inline std::string nameof(void)
+{
+#if SIJSON_HAS_CXXABI_H
+    int status = -1;
+    std::size_t size = 0;
+    char* name = abi::__cxa_demangle(typeid(T).name(), NULL, &size, &status);
+
+    std::string sname;
+    if (name)
+    {
+        sname.assign(name, size);
+        std::free(name);
+    }
+    else sname.assign(typeid(T).name());
+    return sname;
+
+#elif defined(_MSC_VER)
+    // MSVC demangles these already
+    return typeid(T).name();
+#else
+    return std::string("typeid: ") + typeid(T).name();
+#endif
+}
 
 
 // Arrays decay to const T*, all other Ts stay the same.
@@ -119,6 +150,12 @@ template <> struct least_t_exp_max<std::uint_least64_t> : std::integral_constant
 template <typename T>
 using decay_array_to_constptr_t = typename std::decay<const T&>::type;
 
+
+template <typename T>
+using make_unsigned_t = typename std::make_unsigned<T>::type;
+
+template <typename T>
+using make_signed_t = typename std::make_signed<T>::type;
 
 template <typename T>
 using is_nonbool_integral = std::integral_constant<bool,
@@ -131,7 +168,6 @@ using is_nb_signed_integral = std::integral_constant<bool,
 template <typename T>
 using is_nb_unsigned_integral = std::integral_constant<bool,
     is_nonbool_integral<T>::value && std::is_unsigned<T>::value>;
-
 
 // True if T is a POD type (trivial and standard-layout).
 template <typename T>
@@ -211,48 +247,47 @@ struct max_chars10<T, false> : std::integral_constant<int,
 
 
 template <typename T>
-inline void move_if_tag(T& lhs, T&& rhs, std::true_type)
+inline void tag_move_if(T& lhs, T&& rhs, std::true_type)
 { lhs = std::move(rhs); }
 
 template <typename T>
-inline void move_if_tag(T&, T&&, std::false_type) {}
+inline void tag_move_if(T&, T&&, std::false_type) {}
 
 template <typename T>
-inline void copy_if_tag(T& lhs, const T& rhs, std::true_type)
+inline void tag_copy_if(T& lhs, const T& rhs, std::true_type)
 { lhs = rhs; }
 
 template <typename T>
-inline void copy_if_tag(T&, const T&, std::false_type) {}
+inline void tag_copy_if(T&, const T&, std::false_type) {}
 
 
-// Absolute value of a signed integer. Converts to unsigned.
-template <typename T,
-    typename uT = typename std::make_unsigned<T>::type>
-constexpr uT absu(T value) noexcept
+// Absolute value of a signed integral type. Converts to unsigned equivalent.
+template <typename T>
+constexpr make_unsigned_t<T> absu(T value) noexcept
 {
-    // should be true on sane archs :)
+    // are there any systems that would violate this?
     static_assert(
         std::numeric_limits<T>::max() + std::numeric_limits<T>::min() == 0 ||
-        std::numeric_limits<uT>::digits > std::numeric_limits<T>::digits,
-        "absu() may fail for values close to signed min()");
+        // can unsigned T store |signed min T|?
+        std::numeric_limits<make_unsigned_t<T>>::digits > std::numeric_limits<T>::digits,
+        "Platform not supported.");
 
-    return value < 0 ? -static_cast<uT>(value) : value;
+    return value < 0 ? -static_cast<make_unsigned_t<T>>(value) : value;
 }
 
-// Negate an unsigned value. Converts to signed.
-// Behavior is undefined if the value is not convertible.
+// Negate an unsigned integral type. Converts to signed equivalent.
+// The behavior is undefined if the value is not convertible.
 template <typename T,
     T lbound = std::numeric_limits<T>::min(),
-    T ubound = std::numeric_limits<T>::max(),
-    typename uT = typename std::make_unsigned<T>::type>
+    T ubound = std::numeric_limits<T>::max()>
 inline
 #ifdef NDEBUG
 constexpr
 #endif
-T uneg(uT uvalue) noexcept
+T uneg(make_unsigned_t<T> uvalue) noexcept
 {
     static_assert(lbound < 0 && ubound > 0 &&
-        absu(lbound) >= ubound, "Invalid lower or upper bound");
+        absu(lbound) >= ubound, "Invalid lower or upper bound.");
 
 #ifndef NDEBUG
     assert(uvalue <= absu(lbound));
@@ -261,18 +296,37 @@ T uneg(uT uvalue) noexcept
         -ubound - static_cast<T>(uvalue - ubound);
 }
 
+// Portably convert an unsigned integral type to its signed equivalent.
+// Values larger than signed max wrap around to negative values.
+template <typename T>
+constexpr make_signed_t<T> utos(T value) noexcept
+{
+    // Can signed T represent all values of unsigned T after wrap-around?
+    static_assert(std::numeric_limits<make_signed_t<T>>::max() + 
+        absu(std::numeric_limits<make_signed_t<T>>::min()) >= std::numeric_limits<T>::max(),
+        "Platform not supported.");
+
+    return value > std::numeric_limits<make_signed_t<T>>::max() ?
+        // https://stackoverflow.com/questions/13150449/
+        static_cast<make_signed_t<T>>(value - 
+            absu(std::numeric_limits<make_signed_t<T>>::min())) + std::numeric_limits<make_signed_t<T>>::min() : 
+        static_cast<make_signed_t<T>>(value);
+}
+
 // Round an unsigned value up to the closest multiple of factor.
 template <typename T>
 constexpr T uround_up(T value, T factor)
 {
-    static_assert(std::is_unsigned<T>::value, "T must be unsigned");   
+    static_assert(std::is_unsigned<T>::value, "T must be unsigned");
     return value != 0 && factor != 0 ? (value + factor - 1) - (value + factor - 1) % factor : 0;
 }
 
 
-inline bool is_digit(char c) noexcept { return c >= '0' && c <= '9'; }
+template <typename CharT>
+inline bool is_digit(CharT c) noexcept { return c >= 0x30 && c <= 0x39; }
 
-inline bool is_ws(char c) noexcept
+template <typename CharT>
+inline bool is_ws(CharT c) noexcept
 {
     switch (c)
     {
@@ -286,7 +340,8 @@ inline bool is_ws(char c) noexcept
     }
 }
 
-inline char to_lower(char c) noexcept { return c >= 'A' && c <= 'Z' ? c - ('A' - 'a') : c; }
+template <typename CharT>
+inline CharT to_lower(CharT c) noexcept { return c >= 0x41 && c <= 0x5a ? c + 32 : c; }
 
 template <typename ConstIterator, typename CharT, typename Pred>
 inline bool starts_with(ConstIterator str_begin, ConstIterator str_end, 
@@ -322,6 +377,30 @@ inline bool skip_ws(Istream& stream, std::size_t& out_finalpos)
     out_finalpos = stream.inpos();
     return rval;
 }
+
+// True if T is a type designated to access raw memory.
+template <typename T>
+using is_byte_like = std::integral_constant<bool,
+#if defined(__cpp_lib_byte) || SIJSON_CPLUSPLUS >= 201703L
+    std::is_same<T, std::byte>::value ||
+#endif
+    std::is_same<T, unsigned char>::value ||
+    std::is_same<T, char>::value
+>;
+
+// True if T may be used for UTF-8 character representation.
+template <typename T>
+using is_char8_like = std::integral_constant<bool,
+#ifdef __cpp_char8_t
+    std::is_same<T, char8_t>::value ||
+#endif
+    std::is_same<T, unsigned char>::value ||
+    std::is_same<T, char>::value
+>;
+
+template <typename IStream>
+inline unsigned char btake(IStream& is) { return static_cast<unsigned char>(is.take()); }
+
 
 inline std::runtime_error parse_error(std::size_t pos, const std::string& message)
 {

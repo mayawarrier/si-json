@@ -19,45 +19,57 @@
 #include "internal/buffers.hpp"
 #include "internal/impl_rw.hpp"
 
-#include "common.hpp"
+#include "core.hpp"
 #include "number.hpp"
 #include "stringstream.hpp"
-#include "stdstream.hpp"
+#include "stream_adapters.hpp"
 
+#include "encoding.hpp"
 
 namespace sijson {
 
-// Low-level ASCII JSON reader.
-template <typename Istream>
-class raw_ascii_reader
+// Low-level JSON reader.
+template <encoding Encoding, typename Istream>
+class raw_reader
 {
 private:
-    using JsonIstream = wrap_std_istream_t<Istream>;
+    using JsonIstream = sijson_istream_t<Istream>;
+    using CharT = typename Istream::char_type;
 
 public:
+    //using char_type = typename Istream::char_type;
+    //using encoding_char_type = EncCharT;
     using stream_type = JsonIstream;
 
 public:
-    raw_ascii_reader(Istream& stream) :
+    raw_reader(Istream& stream) :
         m_stream(stream)
     {}
 
     // Get next unread token, skipping any whitespace.
-    token_t token(void);
+    sijson::token token(void);
 
-    inline void read_start_object(void) { read_char('{'); }
-    inline void read_end_object(void) { read_char('}'); }
-    inline void read_start_array(void) { read_char('['); }
-    inline void read_end_array(void) { read_char(']'); }
-    inline void read_key_separator(void) { read_char(':'); }
-    inline void read_item_separator(void) { read_char(','); }
+    inline void read_start_object(void) { read_char(0x7b); }
+    inline void read_end_object(void) { read_char(0x7d); }
+    inline void read_start_array(void) { read_char(0x5b); }
+    inline void read_end_array(void) { read_char(0x5d); }
+    inline void read_key_separator(void) { read_char(0x3a); }
+    inline void read_item_separator(void) { read_char(0x2c); }
 
-    inline std::int_least32_t read_int32(void) { return read_int_lst<std::int_least32_t>("int32"); }
-    inline std::int_least64_t read_int64(void) { return read_int_lst<std::int_least64_t>("int64"); }
-    inline std::uint_least32_t read_uint32(void) { return read_uint_lst<std::uint_least32_t>("uint32"); }
-    inline std::uint_least64_t read_uint64(void) { return read_uint_lst<std::uint_least64_t>("uint64"); }
+    inline std::int_least32_t read_int32(void) 
+    { return read_intg<std::int_least32_t, iutil::int32_min, iutil::int32_max>("int32"); }
+
+    inline std::int_least64_t read_int64(void) 
+    { return read_intg<std::int_least64_t, iutil::int64_min, iutil::int64_max>("int64"); }
+
+    inline std::uint_least32_t read_uint32(void) 
+    { return read_uintg<std::uint_least32_t, iutil::uint32_max>("uint32"); }
+
+    inline std::uint_least64_t read_uint64(void) 
+    { return read_uintg<std::uint_least64_t, iutil::uint64_max>("uint64"); }
 
     inline float read_float(void) { return read_floating<float>("float"); }
+
     inline double read_double(void) { return read_floating<double>("double"); }
 
     // Read numerical value.
@@ -70,16 +82,15 @@ public:
     // Read string. String is unescaped.
     inline std::string read_string(void)
     {
-        return read_string<std::char_traits<char>, std::allocator<char>>();
+        return read_string<std::allocator<char>>();
     }
 
-    // Read string with custom traits/allocator. String is unescaped.
+    // Read string with custom allocator. String is unescaped.
     template <
-        typename StrTraits,
         typename StrAllocator = std::allocator<char>>
-        inline std::basic_string<char, StrTraits, StrAllocator> read_string(void)
+        inline std::basic_string<char, std::char_traits<char>, StrAllocator> read_string(void)
     {
-        basic_ostdstrstream<StrTraits, StrAllocator> os;
+        basic_ostdstrstream<char, StrAllocator> os;
         read_string_impl(m_stream, os);
         return std::move(os).str();
     }
@@ -93,7 +104,7 @@ public:
         static_assert(iutil::is_instance_of_basic_string<DestString, char>::value,
             "DestString is not a std::basic_string.");
 
-        return read_string<typename DestString::traits_type, typename DestString::allocator_type>();
+        return read_string<typename DestString::allocator_type>();
     }
 
     // Read string into output stream.
@@ -108,7 +119,7 @@ public:
     // TOKEN_string. If token is null, reads it and returns TOKEN_null.
     // String is unescaped.
     template <typename Func>
-    inline token_t read_string_or_null(Func get_os)
+    inline sijson::token read_string_or_null(Func get_os)
     {
         return read_string_or_null_impl(m_stream, get_os) ? TOKEN_string : TOKEN_null;
     }
@@ -134,9 +145,7 @@ private:
 
     template <typename UintT>
     static inline bool read_uintg_impl(JsonIstream& stream, UintT& out_value);
-    template <typename IntT, IntT lbound, IntT ubound>
-    static inline bool read_intg_impl(JsonIstream& stream, IntT& out_value);
-    template <typename IntT>
+    template <typename IntT, IntT Lbound, IntT Ubound>
     static inline bool read_intg_impl(JsonIstream& stream, IntT& out_value);
 
     template <bool CheckNanInfHex = true, typename Osstream, typename FloatT>
@@ -151,15 +160,15 @@ private:
     template <typename Func>
     static inline bool read_string_or_null_impl(JsonIstream& is, Func get_os);
 
-    template <typename IntT>
-    inline IntT read_intg_t(void);
-    template <typename UintT>
-    inline UintT read_uintg_t(void);
+    template <typename IntT, 
+        IntT Lbound = std::numeric_limits<IntT>::min(), 
+        IntT Ubound = std::numeric_limits<IntT>::max()>
+    inline IntT read_intg(const char* type_name = nullptr);
 
-    template <typename IntLeastT>
-    inline IntLeastT read_int_lst(const char* type_label);
-    template <typename UintLeastT>
-    inline UintLeastT read_uint_lst(const char* type_label);
+    template <typename UintT, 
+        UintT Ubound = std::numeric_limits<UintT>::max()>
+    inline UintT read_uintg(const char* type_name = nullptr);
+
     template <typename FloatT>
     inline FloatT read_floating(const char* type_label);
 
@@ -168,34 +177,37 @@ private:
     struct read_t_impl
     {
         template <typename T, iutil::enable_if_t<iutil::is_nb_signed_integral<T>::value, int> = 0>
-        static inline T read(raw_ascii_reader& r) { return r.read_intg_t<T>(); }
+        static inline T read(raw_reader& r) { return r.read_intg<T>(); }
 
         template <typename T, iutil::enable_if_t<iutil::is_nb_unsigned_integral<T>::value, int> = 0>
-        static inline T read(raw_ascii_reader& r) { return r.read_uintg_t<T>(); }
+        static inline T read(raw_reader& r) { return r.read_uintg<T>(); }
 
         template <typename T, iutil::enable_if_same_t<T, float> = 0>
-        static inline T read(raw_ascii_reader& r) { return r.read_float(); }
+        static inline T read(raw_reader& r) { return r.read_float(); }
 
         template <typename T, iutil::enable_if_same_t<T, double> = 0>
-        static inline T read(raw_ascii_reader& r) { return r.read_double(); }
+        static inline T read(raw_reader& r) { return r.read_double(); }
 
         template <typename T, iutil::enable_if_same_t<T, number> = 0>
-        static inline T read(raw_ascii_reader& r) { return r.read_number(); }
+        static inline T read(raw_reader& r) { return r.read_number(); }
 
         template <typename T, iutil::enable_if_same_t<T, bool> = 0>
-        static inline T read(raw_ascii_reader& r) { return r.read_bool(); }
+        static inline T read(raw_reader& r) { return r.read_bool(); }
 
         template <typename T, iutil::enable_if_t<iutil::is_instance_of_basic_string<T, char>::value> = 0>
-        static inline T read(raw_ascii_reader& r) { return r.read_string(); }
+        static inline T read(raw_reader& r) { return r.read_string(); }
 
         template <typename T, iutil::enable_if_same_t<T, std::nullptr_t> = 0>
-        static inline T read(raw_ascii_reader& r) { r.read_null(); return nullptr; }
+        static inline T read(raw_reader& r) { r.read_null(); return nullptr; }
     };
 
 private:
-    wrap_std_istream_t<Istream&> m_stream;
+    sijson_istream_t<Istream&> m_stream;
 };
 
+// for now
+template <typename Istream>
+using raw_ascii_reader = raw_reader<ENCODING_utf8, Istream>;
 
 
 // ASCII JSON reader.
@@ -212,13 +224,13 @@ public:
     }
 
     // Get next unread token, skipping any whitespace.
-    inline token_t token(void) { return m_rr.token(); }
+    inline sijson::token token(void) { return m_rr.token(); }
 
     // Get parent node.
     // For eg. if you call start_object(), parent_node()
     // returns DOCNODE_object until the next call to 
     // end_object() or start_array().
-    inline doc_node_t parent_node(void) const { return this->m_nodes.top().type; }
+    inline doc_node_type parent_node(void) const { return this->m_nodes.top().type; }
 
     // Start reading object.
     inline void start_object(void)
@@ -255,15 +267,14 @@ public:
     // Read object key. String is unescaped.
     inline std::string read_key(void)
     {
-        return read_key<std::char_traits<char>, std::allocator<char>>();
+        return read_key<std::allocator<char>>();
     }
 
-    // Read object key with custom traits/allocator.
+    // Read object key with custom allocator.
     // String is unescaped.
     template <
-        typename StrTraits,
         typename StrAllocator = std::allocator<char>>
-        inline std::basic_string<char, StrTraits, StrAllocator> read_key(void);
+        inline std::basic_string<char, std::char_traits<char>, StrAllocator> read_key(void);
 
     // Read object key of custom type.
     // DestString must be a std::basic_string.
@@ -273,7 +284,7 @@ public:
         static_assert(iutil::is_instance_of_basic_string<DestString, char>::value,
             "DestString is not a std::basic_string.");
 
-        return read_key<typename DestString::traits_type, typename DestString::allocator_type>();
+        return read_key<typename DestString::allocator_type>();
     }
 
     // Read object key.
@@ -348,7 +359,7 @@ public:
 private:
     inline void read_separator(void);
 
-    template <typename Traits, typename IsEndpFunc>
+    template <typename IsEndpFunc>
     inline bool read_key_impl(const char* str, IsEndpFunc is_endp, std::size_t& out_pos);
 
 private:
@@ -357,8 +368,8 @@ private:
 
 
 
-template <typename Istream>
-inline void raw_ascii_reader<Istream>::read_char(char expected)
+template <encoding Encoding, typename Istream>
+inline void raw_reader<Encoding, Istream>::read_char(char expected)
 {
     if (!iutil::skip_ws(m_stream)) goto fail;
     if (m_stream.peek() != expected) goto fail;
@@ -370,140 +381,103 @@ fail:
 }
 
 // Get type of token to be read.
-template <typename Istream>
-inline token_t raw_ascii_reader<Istream>::token(void)
+template <encoding Encoding, typename Istream>
+inline sijson::token raw_reader<Encoding, Istream>::token(void)
 {
     if (!iutil::skip_ws(m_stream))
         return TOKEN_eof;
 
     switch (m_stream.peek())
     {
-        case '{': return TOKEN_begin_object;
-        case '}': return TOKEN_end_object;
-        case '[': return TOKEN_begin_array;
-        case ']': return TOKEN_end_array;
-        case ':': return TOKEN_key_separator;
-        case ',': return TOKEN_item_separator;
-        case '"': return TOKEN_string;
-        case 't':
-        case 'f': return TOKEN_boolean;
-        case 'n': return TOKEN_null;
-        case '-': return TOKEN_number;
+        case 0x7b: return TOKEN_begin_object;   // '{'
+        case 0x7d: return TOKEN_end_object;     // '}'
+        case 0x5b: return TOKEN_begin_array;    // '['
+        case 0x5d: return TOKEN_end_array;      // ']'
+        case 0x3a: return TOKEN_key_separator;  // ':'
+        case 0x2c: return TOKEN_item_separator; // ','
+        case 0x22: return TOKEN_string;         // '"'
+        case 0x74:                              // 't'
+        case 0x66: return TOKEN_boolean;        // 'f'
+        case 0x6e: return TOKEN_null;           // 'n'
+        case 0x2d: return TOKEN_number;         // '-'
         default:
             if (iutil::is_digit(m_stream.peek()))
                 return TOKEN_number;
-            break;
-    }
-    throw iutil::parse_error_exp(m_stream.inpos(), "token");
+            else
+                throw iutil::parse_error_exp(m_stream.inpos(), "token");
+    }  
 }
 
-template <typename Istream>
+template <encoding Encoding, typename Istream>
 template <typename UintT>
-inline bool raw_ascii_reader<Istream>::read_uintg_impl(JsonIstream& stream, UintT& out_value)
+inline bool raw_reader<Encoding, Istream>::read_uintg_impl(JsonIstream& stream, UintT& out_value)
 {
-    if (stream.end() || !iutil::is_digit(stream.peek())
-        || stream.peek() == '-')
+    if (stream.end() || !iutil::is_digit(stream.peek()) || 
+        stream.peek() == 0x2d) // '-'
         return false;
 
     out_value = 0;
-    while (!stream.end() && iutil::is_digit(stream.peek())) 
+    while (!stream.end() && iutil::is_digit(stream.peek()))
     {
         UintT old = out_value;
-        out_value = 10 * out_value + (stream.peek() - '0');
+        out_value = 10 * out_value + (UintT)(stream.peek() - 0x30); // '0'
         if (out_value < old) return false; // overflow
         stream.take();
     }
     return true;
 }
 
-template <typename Istream>
-template <typename IntT, IntT lbound, IntT ubound>
-inline bool raw_ascii_reader<Istream>::read_intg_impl(JsonIstream& stream, IntT& out_value)
+template <encoding Encoding, typename Istream>
+template <typename IntT, IntT Lbound, IntT Ubound>
+inline bool raw_reader<Encoding, Istream>::read_intg_impl(JsonIstream& stream, IntT& out_value)
 {
-    bool neg = stream.peek() == '-';
+    bool neg = stream.peek() == 0x2d; // '-'
     if (neg) stream.take();
 
     typename std::make_unsigned<IntT>::type uvalue;
     if (!read_uintg_impl(stream, uvalue)) return false;
     if (neg) {
-        if (uvalue > iutil::absu(lbound)) return false;
-    } else if (uvalue > iutil::absu(ubound)) return false;
+        if (uvalue > iutil::absu(Lbound)) return false;
+    } else if (uvalue > iutil::absu(Ubound)) return false;
 
-    out_value = neg ? iutil::uneg<IntT, lbound, ubound>(uvalue) : (IntT)uvalue;
+    out_value = neg ? iutil::uneg<IntT, Lbound, Ubound>(uvalue) : (IntT)uvalue;
     return true;
 }
 
-template <typename Istream>
-template <typename IntT>
-inline bool raw_ascii_reader<Istream>::read_intg_impl(JsonIstream& stream, IntT& out_value)
-{
-    return read_intg_impl<IntT,
-        std::numeric_limits<IntT>::min(),
-        std::numeric_limits<IntT>::max()>(stream, out_value);
-}
-
-template <typename Istream>
-template <typename IntT>
-inline IntT raw_ascii_reader<Istream>::read_intg_t(void)
+template <encoding Encoding, typename Istream>
+template <typename IntT, IntT Lbound, IntT Ubound>
+inline IntT raw_reader<Encoding, Istream>::read_intg(const char* type_name)
 {
     IntT value;
     if (!iutil::skip_ws(m_stream)) goto fail;
-    if (!read_intg_impl(m_stream, value)) goto fail;
+    if (!read_intg_impl<IntT, Lbound, Ubound>(m_stream, value)) goto fail;
     return value;
 fail:
-    throw iutil::parse_error_exp(m_stream.inpos(), "signed integral type");
+    throw iutil::parse_error_exp(m_stream.inpos(), type_name ? type_name : "signed integral type");
 }
 
-template <typename Istream>
-template <typename UintT>
-inline UintT raw_ascii_reader<Istream>::read_uintg_t(void)
+template <encoding Encoding, typename Istream>
+template <typename UintT, UintT Ubound>
+inline UintT raw_reader<Encoding, Istream>::read_uintg(const char* type_name)
 {
     UintT value;
     if (!iutil::skip_ws(m_stream)) goto fail;
     if (!read_uintg_impl(m_stream, value)) goto fail;
+    if (value > Ubound) goto fail;
     return value;
 fail:
-    throw iutil::parse_error_exp(m_stream.inpos(), "unsigned integral type");
+    throw iutil::parse_error_exp(m_stream.inpos(), type_name ? type_name : "unsigned integral type");
 }
 
-template <typename Istream>
-template <typename IntLeastT>
-inline IntLeastT raw_ascii_reader<Istream>::read_int_lst(const char* type_label)
-{   
-    if (!iutil::skip_ws(m_stream)) goto fail;
-
-    IntLeastT value;
-    if (!read_intg_impl<IntLeastT,
-        iutil::least_t_exp_min<IntLeastT>::value,
-        iutil::least_t_exp_max<IntLeastT>::value>(m_stream, value)) goto fail;
-    return value;
-fail:
-    throw iutil::parse_error_exp(m_stream.inpos(), type_label);
-}
-
-template <typename Istream>
-template <typename UintLeastT>
-inline UintLeastT raw_ascii_reader<Istream>::read_uint_lst(const char* type_label)
-{
-    if (!iutil::skip_ws(m_stream)) goto fail;
-
-    UintLeastT value;      
-    if (!read_uintg_impl(m_stream, value)) goto fail;
-    if (value > iutil::least_t_exp_max<UintLeastT>::value) goto fail;
-    return value;
-fail:
-    throw iutil::parse_error_exp(m_stream.inpos(), type_label);
-}
-
-template <typename Istream>
+template <encoding Encoding, typename Istream>
 template <typename Ostream>
-inline void raw_ascii_reader<Istream>::take_numstr(JsonIstream& is, Ostream& os)
+inline void raw_reader<Encoding, Istream>::take_numstr(JsonIstream& is, Ostream& os)
 {
     while (!is.end() && !iutil::is_ws(is.peek()))
     {
         switch (is.peek())
         {
-            case ',': case']': case '}':
+            case 0x2c: case 0x5d: case 0x7d: // ',', ']', '}'
                 return;
             default: os.put(is.take());
                 break;
@@ -511,14 +485,14 @@ inline void raw_ascii_reader<Istream>::take_numstr(JsonIstream& is, Ostream& os)
     }
 }
 
-template <typename Istream>
+template <encoding Encoding, typename Istream>
 template <bool CheckNanInfHex, typename Osstream, typename FloatT>
-inline bool raw_ascii_reader<Istream>::read_floating_impl(Osstream& numstream, FloatT& out_value)
+inline bool raw_reader<Encoding, Istream>::read_floating_impl(Osstream& numstream, FloatT& out_value)
 {
     if (numstream.outpos() == 0)
         return false;
 
-    auto strdata = numstream.outdata();
+    auto strdata = sijson::outdata(numstream);
     auto* str_begin = strdata.begin;
     auto* str_end = strdata.end;
 
@@ -526,16 +500,17 @@ inline bool raw_ascii_reader<Istream>::read_floating_impl(Osstream& numstream, F
     if (CheckNanInfHex)
     {
         // skip '-'
-        if (*str_begin == '-') {
+        if (*str_begin == 0x2d) {
             neg = true; str_begin++;
             // only sign?
             if (numstream.outpos() == 1)
                 return false;
         }
 
-        auto ci_equal = [](char lhs, char rhs) {
+        auto ci_equal = [](CharT lhs, CharT rhs) {
             return rhs == iutil::to_lower(lhs);
         };
+
         if (iutil::starts_with(str_begin, str_end, "0x", 2, ci_equal) ||
             iutil::starts_with(str_begin, str_end, "nan", 3, ci_equal) ||
             iutil::starts_with(str_begin, str_end, "inf", 3, ci_equal))
@@ -555,9 +530,9 @@ inline bool raw_ascii_reader<Istream>::read_floating_impl(Osstream& numstream, F
     return !sstream.fail();
 }
 
-template <typename Istream>
+template <encoding Encoding, typename Istream>
 template <typename FloatT>
-inline FloatT raw_ascii_reader<Istream>::read_floating(const char* type_label)
+inline FloatT raw_reader<Encoding, Istream>::read_floating(const char* type_label)
 {
     std::size_t error_offset;
     if (!iutil::skip_ws(m_stream, error_offset)) goto fail;
@@ -565,7 +540,7 @@ inline FloatT raw_ascii_reader<Istream>::read_floating(const char* type_label)
     FloatT value;
     {
         char strbuf[iutil::max_chars10<FloatT>::value];
-        unchecked_ostrspanstream numstream(strbuf, sizeof(strbuf));
+        ostrspanstream numstream(strbuf, sizeof(strbuf));
         take_numstr(m_stream, numstream);
 
         if (!read_floating_impl(numstream, value)) goto fail;
@@ -575,8 +550,8 @@ fail:
     throw iutil::parse_error_exp(error_offset, type_label);
 }
 
-template <typename Istream>
-inline bool raw_ascii_reader<Istream>::read_number_impl(JsonIstream& stream, number& out_value)
+template <encoding Encoding, typename Istream>
+inline bool raw_reader<Encoding, Istream>::read_number_impl(JsonIstream& stream, number& out_value)
 {
     auto out_inumber = [&](std::uintmax_t value, bool neg) -> bool 
     {
@@ -601,7 +576,7 @@ inline bool raw_ascii_reader<Istream>::read_number_impl(JsonIstream& stream, num
     char fpstrbuf[iutil::max_chars10<double>::value];
     unchecked_ostrspanstream fpstream(fpstrbuf, sizeof(fpstrbuf)); // floating point value
 
-    bool neg = stream.peek() == '-';
+    bool neg = stream.peek() == 0x2d; // '-'
     if (neg) fpstream.put(stream.take());
 
     if (stream.end() || !iutil::is_digit(stream.peek()))
@@ -611,8 +586,8 @@ inline bool raw_ascii_reader<Istream>::read_number_impl(JsonIstream& stream, num
     while (!stream.end() && iutil::is_digit(stream.peek()))
     {
         old_int_v = int_v;
-        char c = stream.take(); fpstream.put(c);
-        int_v = 10 * int_v + (c - '0');
+        auto c = stream.take(); fpstream.put(c);
+        int_v = 10 * int_v + (c - 0x30); // '0'
         if (int_v < old_int_v) return false; // overflow
     }
     if (stream.end() || iutil::is_ws(stream.peek()))
@@ -620,10 +595,10 @@ inline bool raw_ascii_reader<Istream>::read_number_impl(JsonIstream& stream, num
 
     switch (stream.peek())
     {
-        case ',': case']': case '}':
+        case 0x2c: case 0x5d: case 0x7d: // ',', ']', '}'
             return out_inumber(int_v, neg);
 
-        case '.': case 'e': case 'E':
+        case 0x2e: case 0x65: case 0x45: // '.', 'e', 'E'
         {
             double float_v;
             take_numstr(stream, fpstream); // remaining
@@ -636,8 +611,8 @@ inline bool raw_ascii_reader<Istream>::read_number_impl(JsonIstream& stream, num
     }
 }
 
-template <typename Istream>
-inline number raw_ascii_reader<Istream>::read_number(void)
+template <encoding Encoding, typename Istream>
+inline number raw_reader<Encoding, Istream>::read_number(void)
 {
     number value; 
     std::size_t error_offset;
@@ -649,43 +624,43 @@ fail:
     throw iutil::parse_error_exp(error_offset, "number");
 }
 
-template <typename Istream>
-inline bool raw_ascii_reader<Istream>::read_bool(void)
+template <encoding Encoding, typename Istream>
+inline bool raw_reader<Encoding, Istream>::read_bool(void)
 {
     std::size_t error_offset;
     if (!iutil::skip_ws(m_stream, error_offset)) goto fail;
 
-    if (m_stream.peek() == 't')
+    if (m_stream.peek() == 0x74) // 't'
     {
         m_stream.take();
-        if (m_stream.end() || m_stream.take() != 'r') goto fail;
-        if (m_stream.end() || m_stream.take() != 'u') goto fail;
-        if (m_stream.end() || m_stream.take() != 'e') goto fail;
+        if (m_stream.end() || m_stream.take() != 0x72) goto fail; // 'r'
+        if (m_stream.end() || m_stream.take() != 0x75) goto fail; // 'u'
+        if (m_stream.end() || m_stream.take() != 0x65) goto fail; // 'e'
         return true;
     }
-    else if (m_stream.peek() == 'f')
+    else if (m_stream.peek() == 0x66) // 'f'
     {
         m_stream.take();
-        if (m_stream.end() || m_stream.take() != 'a') goto fail;
-        if (m_stream.end() || m_stream.take() != 'l') goto fail;
-        if (m_stream.end() || m_stream.take() != 's') goto fail;
-        if (m_stream.end() || m_stream.take() != 'e') goto fail;
+        if (m_stream.end() || m_stream.take() != 0x61) goto fail; // 'a'
+        if (m_stream.end() || m_stream.take() != 0x6c) goto fail; // 'l'
+        if (m_stream.end() || m_stream.take() != 0x73) goto fail; // 's'
+        if (m_stream.end() || m_stream.take() != 0x65) goto fail; // 'e'
         return false;
     }
 fail:
     throw iutil::parse_error_exp(error_offset, "bool");
 }
 
-template <typename Istream>
-inline void raw_ascii_reader<Istream>::read_null(void)
+template <encoding Encoding, typename Istream>
+inline void raw_reader<Encoding, Istream>::read_null(void)
 {
     std::size_t error_offset;
     if (!iutil::skip_ws(m_stream, error_offset)) goto fail;
 
-    if (m_stream.end() || m_stream.take() != 'n') goto fail;
-    if (m_stream.end() || m_stream.take() != 'u') goto fail;
-    if (m_stream.end() || m_stream.take() != 'l') goto fail;
-    if (m_stream.end() || m_stream.take() != 'l') goto fail;
+    if (m_stream.take() != 0x6e) goto fail; // 'n'
+    if (m_stream.end() || m_stream.take() != 0x75) goto fail; // 'u'
+    if (m_stream.end() || m_stream.take() != 0x6c) goto fail; // 'l'
+    if (m_stream.end() || m_stream.take() != 0x6c) goto fail; // 'l'
     return;
 fail:
     throw iutil::parse_error_exp(error_offset, "null");
@@ -723,14 +698,14 @@ private:
 };
 }
 
-template <typename Istream>
+template <encoding Encoding, typename Istream>
 template <typename Ostream>
-inline void raw_ascii_reader<Istream>::take_unescape(JsonIstream& is, Ostream& os)
+inline void raw_reader<Encoding, Istream>::take_unescape(JsonIstream& is, Ostream& os)
 {
     assert(!is.end());
     const char* EXSTR_bad_escape = "Invalid escape sequence.";
 
-    if (is.peek() != '\\')
+    if (is.peek() != 0x5c) // '\'
         os.put(is.take());
     else
     {
@@ -741,28 +716,28 @@ inline void raw_ascii_reader<Istream>::take_unescape(JsonIstream& is, Ostream& o
 
         switch (is.take()) // unescape
         {
-            case 'b': os.put('\b'); break;
-            case 'f': os.put('\f'); break;
-            case 'n': os.put('\n'); break;
-            case 'r': os.put('\r'); break;
-            case 't': os.put('\t'); break;
-            case '"': os.put('"'); break;
-            case '/': os.put('/'); break; // MS-only?
+            case 0x62: os.put(0x08); break; // '\b'
+            case 0x66: os.put(0x0c); break; // '\f'
+            case 0x6e: os.put(0x0a); break; // '\n'
+            case 0x72: os.put(0x0d); break; // '\r'
+            case 0x74: os.put(0x09); break; // '\t'
+            case 0x22: os.put(0x22); break; // '"'
+            case 0x2f: os.put(0x2f); break; // '/'
             default: 
                 throw iutil::parse_error(is.inpos() - 1, EXSTR_bad_escape);
         }
     }
 }
 
-template <typename Istream>
+template <encoding Encoding, typename Istream>
 template <typename Ostream>
-inline void raw_ascii_reader<Istream>::read_string_impl(JsonIstream& is, Ostream& os)
+inline void raw_reader<Encoding, Istream>::read_string_impl(JsonIstream& is, Ostream& os)
 {
-    if (!iutil::skip_ws(is) || is.peek() != '"')
+    if (!iutil::skip_ws(is) || is.peek() != 0x22) // '"'
         goto fail;
 
     is.take(); // open quotes
-    while (!is.end() && is.peek() != '"')
+    while (!is.end() && is.peek() != 0x22) // '"'
         take_unescape(is, os);
 
     if (is.end()) goto fail;
@@ -773,27 +748,27 @@ fail:
     throw iutil::parse_error_exp(is.inpos(), "string");
 }
 
-template <typename Istream>
+template <encoding Encoding, typename Istream>
 template <typename Func>
 inline bool
-raw_ascii_reader<Istream>::read_string_or_null_impl(JsonIstream& is, Func get_os)
+raw_reader<Encoding, Istream>::read_string_or_null_impl(JsonIstream& is, Func get_os)
 {
     if (!iutil::skip_ws(is)) goto fail;
 
-    if (is.peek() == 'n')
+    if (is.peek() == 0x6e) // 'n'
     {
         is.take();
-        if (is.end() || is.take() != 'u') goto fail;
-        if (is.end() || is.take() != 'l') goto fail;
-        if (is.end() || is.take() != 'l') goto fail;
+        if (is.end() || is.take() != 0x75) goto fail; // 'u'
+        if (is.end() || is.take() != 0x6c) goto fail; // 'l'
+        if (is.end() || is.take() != 0x6c) goto fail; // 'l'
         return false;
     }
-    else if (is.peek() == '"')
+    else if (is.peek() == 0x22) // '"'
     {
         auto&& os = get_os();
 
         is.take(); // open quotes
-        while (!is.end() && is.peek() != '"')
+        while (!is.end() && is.peek() != 0x22) // '"'
             take_unescape(is, os);
 
         if (is.end()) goto fail;
@@ -805,9 +780,9 @@ fail:
     throw iutil::parse_error_exp(is.inpos(), "string or null");
 }
 
-template <typename Istream>
+template <encoding Encoding, typename Istream>
 template <typename Ostream>
-inline void raw_ascii_reader<Istream>::read_string_into(Ostream& os, bool quoted)
+inline void raw_reader<Encoding, Istream>::read_string_into(Ostream& os, bool quoted)
 {
     if (quoted)
         read_string_impl(m_stream, os);
@@ -828,7 +803,7 @@ inline void ascii_reader<Istream, Allocator>::read_separator(void)
         {
             case DOCNODE_object:
             case DOCNODE_array: m_rr.read_item_separator(); break;
-            case DOCNODE_root: throw std::runtime_error(internal::EXSTR_multi_root);
+            case DOCNODE_root: throw std::runtime_error(this->EXSTR_multi_root);
             default: assert(false);
         }
     }
@@ -838,13 +813,13 @@ inline void ascii_reader<Istream, Allocator>::read_separator(void)
 }
 
 template <typename Istream, typename Allocator>
-template <typename StrTraits, typename StrAllocator>
-inline std::basic_string<char, StrTraits, StrAllocator> ascii_reader<Istream, Allocator>::read_key(void)
+template <typename StrAllocator>
+inline std::basic_string<char, std::char_traits<char>, StrAllocator> ascii_reader<Istream, Allocator>::read_key(void)
 {
     this->template assert_rule<DOCNODE_key>();
 
     read_separator();
-    auto str = m_rr.template read_string<StrTraits, StrAllocator>();
+    auto str = m_rr.template read_string<StrAllocator>();
 
     this->m_nodes.push({ DOCNODE_key });
     // don't end_child_node(), key-value pair is incomplete
@@ -852,7 +827,7 @@ inline std::basic_string<char, StrTraits, StrAllocator> ascii_reader<Istream, Al
 }
 
 template <typename Istream, typename Allocator>
-template <typename Traits, typename IsEndpFunc>
+template <typename IsEndpFunc>
 inline bool ascii_reader<Istream, Allocator>::read_key_impl(const char* str, IsEndpFunc is_endp, std::size_t& out_pos)
 {
     this->template assert_rule<DOCNODE_key>();
@@ -860,7 +835,7 @@ inline bool ascii_reader<Istream, Allocator>::read_key_impl(const char* str, IsE
     read_separator();
     iutil::skip_ws(m_rr.stream(), out_pos);
 
-    internal::streq_ostream<Traits, IsEndpFunc> os(str, is_endp);
+    internal::streq_ostream<std::char_traits<char>, IsEndpFunc> os(str, is_endp);
     m_rr.read_string_into(os);
 
     this->m_nodes.push({ DOCNODE_key });
@@ -873,12 +848,10 @@ template <typename Istream, typename Allocator>
 template <typename ...Ts>
 inline void ascii_reader<Istream, Allocator>::read_key(const std::basic_string<char, Ts...>& expected_key)
 {
-    using StrTraits = typename std::basic_string<char, Ts...>::traits_type;
-
     auto is_endp = [&](const char* p) { return p == expected_key.data() + expected_key.size(); };
 
     std::size_t startpos;
-    if (!read_key_impl<StrTraits>(expected_key.data(), is_endp, startpos))
+    if (!read_key_impl(expected_key.data(), is_endp, startpos))
         throw iutil::parse_error_exp(startpos, "string \"" + std::string(expected_key.data(), expected_key.length()) + "\"");
 }
 
@@ -888,7 +861,7 @@ inline void ascii_reader<Istream, Allocator>::read_key(const char* expected_key)
     auto is_endp = [](const char* p) { return *p == '\0'; };
 
     std::size_t startpos;
-    if (!read_key_impl<std::char_traits<char>>(expected_key, is_endp, startpos))
+    if (!read_key_impl(expected_key, is_endp, startpos))
         throw iutil::parse_error_exp(startpos, "string \"" + std::string(expected_key) + "\"");
 }
 
@@ -898,7 +871,7 @@ inline void ascii_reader<Istream, Allocator>::read_key(const char* expected_key,
     auto is_endp = [&](const char* p) { return p == expected_key + length; };
 
     std::size_t startpos;
-    if (!read_key_impl<std::char_traits<char>>(expected_key, is_endp, startpos))
+    if (!read_key_impl(expected_key, is_endp, startpos))
         throw iutil::parse_error_exp(startpos, "string \"" + std::string(expected_key, length) + "\"");
 }
 
@@ -922,7 +895,6 @@ inline std::pair<Key, Value> ascii_reader<Istream, Allocator>::read_key_value(vo
     static_assert(iutil::is_instance_of_basic_string<Key, char>::value, 
         "Key must be a std::basic_string with value_type char.");
 
-    using KeyTraits = typename Key::traits_type;
     using KeyAllocator = typename Key::allocator_type;
 
     this->template assert_rule<DOCNODE_key, DOCNODE_value>();
@@ -930,7 +902,7 @@ inline std::pair<Key, Value> ascii_reader<Istream, Allocator>::read_key_value(vo
     if (this->m_nodes.top().has_children)
         m_rr.read_item_separator();
 
-    Key key = m_rr.template read_string<KeyTraits, KeyAllocator>();
+    Key key = m_rr.template read_string<KeyAllocator>();
     m_rr.read_key_separator();
     Value value = m_rr.template read<Value>();
 

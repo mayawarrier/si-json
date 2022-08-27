@@ -64,7 +64,6 @@ inline auto to_address(const Ptr& p) noexcept -> decltype(to_address(p.operator-
     (_LIBCPP_VERSION >= 6000 && _LIBCPP_STD_VER > 14)
 
 using std::launder;
-
 #else
 
 template <typename T>
@@ -97,11 +96,9 @@ inline void destroy(T& o)
 }
 
 
-// Provides POD storage for an object.
-// Allows non-POD types to be placed in a union
-// so common subsequence rule may apply.
+// Provides properly aligned POD storage for an object.
 template <typename T>
-class pod_storage
+class aligned_storage_for
 {
 public:
     template <typename ...Args>
@@ -114,29 +111,44 @@ public:
         iutil::destroy(get());
     }
 
-    inline T& get(void) noexcept
+    inline T* ptr(void) noexcept
     {
 #if SIJSON_USE_LAUNDER_TO_ACCESS_ALIGNED_BYTE_STORAGE
-        return *iutil::launder(reinterpret_cast<T*>(&m_buf));
+        return iutil::launder(reinterpret_cast<T*>(&m_buf));
 #else
-        return *reinterpret_cast<T*>(&m_buf);
+        return reinterpret_cast<T*>(&m_buf);
 #endif
     }
-    inline const T& get(void) const noexcept
+    inline const T* ptr(void) const noexcept
     {
 #if SIJSON_USE_LAUNDER_TO_ACCESS_ALIGNED_BYTE_STORAGE
-        return *iutil::launder(reinterpret_cast<const T*>(&m_buf));
+        return iutil::launder(reinterpret_cast<const T*>(&m_buf));
 #else
-        return *reinterpret_cast<const T*>(&m_buf);
+        return reinterpret_cast<const T*>(&m_buf);
 #endif
     }
+
+    inline T& get(void) noexcept { return *ptr(); }
+    inline const T& get(void) const noexcept { return *ptr(); }
+
 private:
-    // fix for bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=43976
+    // gcc produces false positives with -Wcast-align=strict.
+    // see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=43976,
+    // this applies the workaround from there.
+    //
+    // todo: this is a temporary fix for GCC only since anything other than
+    // alignas(T) unsigned char[sizeof(T)] is technically UB since P0137R1.
+    // see https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2019/p1413r2.pdf
+    //
+#ifdef __GNUC__
     struct alignas(T) storage
     { 
         unsigned char s[sizeof(T)]; 
     }
     m_buf;
+#else
+    alignas(T) unsigned char m_buf[sizeof(T)];
+#endif
 };
 
 
@@ -249,7 +261,7 @@ inline std::size_t recommend_allocn_size(Allocator& alloc, std::size_t size)
 {
     auto max_size = std::allocator_traits<Allocator>::max_size(alloc);
 
-    constexpr std::size_t alignment = 16; // usually?
+    constexpr std::size_t alignment = 16; // good for 32- or 64-bit
     constexpr std::size_t value_alignment =
         sizeof(T) < alignment ? alignment / sizeof(T) : 1;
 
@@ -298,88 +310,75 @@ private:
 template <typename T>
 inline void move_alloc_if_pocma(T& lhs, T&& rhs) noexcept
 {
-    move_if_tag(lhs, std::move(rhs),
-        std::integral_constant<bool, // may be derived, convert
+    tag_move_if(lhs, std::move(rhs), std::integral_constant<bool, 
         std::allocator_traits<T>::propagate_on_container_move_assignment::value>{});
 }
 
 template <typename T>
 inline void copy_alloc_if_pocca(T& lhs, const T& rhs) noexcept
 {
-    copy_if_tag(lhs, rhs,
-        std::integral_constant<bool, // may be derived, convert
+    tag_copy_if(lhs, rhs, std::integral_constant<bool,
         std::allocator_traits<T>::propagate_on_container_copy_assignment::value>{});
 }
 
-
-template <typename T,
+template <typename T, 
+    bool EnableEbcoFallback = false,
 #if defined(__cpp_lib_is_final) || SIJSON_CPLUSPLUS >= 201402L
-    bool = std::is_empty<T>::value && !std::is_final<T>::value>
+    bool = std::is_empty<T>::value && !std::is_final<T>::value
 #else
-    bool = is_instance_of<T, std::allocator>::value>
+    bool = EnableEbcoFallback
 #endif
-class alloc_ebo : private T
+>
+class ebco : private T
 {
 public:
-    alloc_ebo(void)
-        noexcept(noexcept(T())) : T()
+    template <typename ...Args>
+    explicit ebco(iutil::in_place_t, Args&&... args) :
+        T(std::forward<Args>(args)...)
     {}
 
-    template <typename U,
-        typename = enable_if_same_t<T, remove_cvref_t<U>>>
-        alloc_ebo(U&& alloc) noexcept :
-        T(std::forward<U>(alloc))
-    {}
-
-    inline T& alloc(void) noexcept { return *this; }
-    inline const T& alloc(void) const noexcept { return *this; }
+    inline T& ebco_value(void) noexcept { return *this; }
+    inline const T& ebco_value(void) const noexcept { return *this; }
 };
 
-template <typename T>
-class alloc_ebo<T, false>
+template <typename T, bool EnableEbcoFallback>
+class ebco<T, EnableEbcoFallback, false>
 {
 public:
-    alloc_ebo(void)
-        noexcept(noexcept(T())) : m_alloc()
+    template <typename ...Args>
+    explicit ebco(iutil::in_place_t, Args&&... args) :
+        m_value(std::forward<Args>(args)...)
     {}
 
-    template <typename U,
-        typename = enable_if_same_t<T, remove_cvref_t<U>>>
-        alloc_ebo(U&& alloc) noexcept :
-        m_alloc(std::forward<U>(alloc))
-    {}
-
-    inline T& alloc(void) noexcept { return m_alloc; }
-    inline const T& alloc(void) const noexcept { return m_alloc; }
+    inline T& ebco_value(void) noexcept { return m_value; }
+    inline const T& ebco_value(void) const noexcept { return m_value; }
 
 private:
-    T m_alloc;
+    T m_value;
 };
+
 
 // Wraps an allocator that implements std::allocator_traits.
-// Tries to apply EBO on the allocator type.
+// Tries to apply EBCO on the allocator type.
 // See https://en.cppreference.com/w/cpp/language/ebo.
 template <typename T>
-class alloc_holder : protected alloc_ebo<T>
+class alloc_holder : private ebco<T, is_instance_of<T, std::allocator>::value>
 {
 private:
-    using base = alloc_ebo<T>;
+    using base = ebco<T, is_instance_of<T, std::allocator>::value>;
 
 public:
-    alloc_holder(void)
-        noexcept(noexcept(base())) : base()
-    {}
-
-    template <typename U,
-        typename = enable_if_same_t<T, remove_cvref_t<U>>>
-        alloc_holder(U&& alloc) noexcept :
-        base(std::forward<U>(alloc))
+    template <typename ...Args>
+    explicit alloc_holder(iutil::in_place_t, Args&&... args)
+        noexcept(noexcept(T(std::forward<Args>(args)...))) :
+        base(iutil::in_place, std::forward<Args>(args)...)
     {}
 
     alloc_holder(alloc_holder&& rhs) noexcept = default;
 
     alloc_holder(const alloc_holder& rhs) noexcept :
-        base(std::allocator_traits<T>::select_on_container_copy_construction(rhs.alloc()))
+        base(iutil::in_place, 
+            std::allocator_traits<T>::select_on_container_copy_construction(rhs.alloc()))
     {}
 
     inline alloc_holder& operator=(alloc_holder&& rhs) noexcept
@@ -394,6 +393,9 @@ public:
             copy_alloc_if_pocca(this->alloc(), rhs.alloc());
         return *this;
     }
+
+    inline T& alloc(void) noexcept { return this->ebco_value(); }
+    inline const T& alloc(void) const noexcept { return this->ebco_value(); }
 };
 
 template <typename T>

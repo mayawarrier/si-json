@@ -12,7 +12,7 @@
 #include "internal/util.hpp"
 
 #include "stringstream.hpp"
-#include "stdstream.hpp"
+#include "stream_adapters.hpp"
 #include "writer.hpp"
 #include "reader.hpp"
 
@@ -41,10 +41,9 @@ inline DestString escape_impl(Istream& is)
     static_assert(iutil::is_instance_of_basic_string<DestString, char>::value,
         "DestString is not a std::basic_string.");
 
-    using Traits = typename DestString::traits_type;
     using Allocator = typename DestString::allocator_type;
 
-    basic_ostdstrstream<Traits, Allocator> os;
+    basic_ostdstrstream<char, Allocator> os;
     raw_ascii_writer<decltype(os)> writer(os);
     writer.write_string_from(is, false);
 
@@ -57,10 +56,9 @@ inline DestString unescape_impl(Istream& is)
     static_assert(iutil::is_instance_of_basic_string<DestString, char>::value,
         "DestString is not a std::basic_string.");
 
-    using Traits = typename DestString::traits_type;
     using Allocator = typename DestString::allocator_type;
 
-    basic_ostdstrstream<Traits, Allocator> os;
+    basic_ostdstrstream<char, Allocator> os;
     raw_ascii_reader<Istream> reader(is);
     reader.read_string_into(os, false);
 
@@ -68,28 +66,20 @@ inline DestString unescape_impl(Istream& is)
 }
 }
 
-// Convert value to string with custom traits/allocator.
+// Convert value to string.
 template <
-    typename Traits, 
     typename Allocator = std::allocator<char>,
     typename Value>
-    inline std::basic_string<char, Traits, Allocator> to_string(const Value& value)
+    inline std::basic_string<char, std::char_traits<char>, Allocator> to_string(const Value& value)
 {
     static_assert(!iutil::is_writable_string_type<Value, char>::value,
         "Input is already a string.");
 
-    basic_ostdstrstream<Traits, Allocator> os;
+    basic_ostdstrstream<char, Allocator> os;
     raw_ascii_writer<decltype(os)> writer(os);
     writer.write(value);
 
     return std::move(os).str();
-}
-
-// Convert value to string.
-template <typename Value>
-inline std::string to_string(const Value& value)
-{
-    return to_string<std::char_traits<char>, std::allocator<char>>(value);
 }
 
 // Convert value to string of custom type.
@@ -100,7 +90,7 @@ inline DestString to_string_as(const Value& value)
     static_assert(iutil::is_instance_of_basic_string<DestString, char>::value,
         "DestString is not a std::basic_string.");
 
-    return to_string<typename DestString::traits_type, typename DestString::allocator_type>(value);
+    return to_string<typename DestString::allocator_type>(value);
 }
 
 // -------------------------------------------------------------------
@@ -109,7 +99,7 @@ inline DestString to_string_as(const Value& value)
 template <typename Value>
 inline Value to_value(const char* string)
 {
-    icstrstream is(string);
+    istrstream is(string);
     return internal::to_value_impl<Value>(is);
 }
 
@@ -123,8 +113,8 @@ inline Value to_value(const char* string, std::size_t length)
 
 #if SIJSON_HAS_STRING_VIEW
 // Convert string to value.
-template <typename Value, typename Traits>
-inline Value to_value(std::basic_string_view<char, Traits> strview)
+template <typename Value>
+inline Value to_value(std::basic_string_view<char, std::char_traits<char>> strview)
 {
     istrstream is(strview);
     return internal::to_value_impl<Value>(is);
@@ -135,7 +125,7 @@ inline Value to_value(std::basic_string_view<char, Traits> strview)
 template <typename Value, typename ...Ts>
 inline Value to_value(const std::basic_string<char, Ts...>& string)
 {
-    istdstrstream is(string);
+    istrstream is(string);
     return internal::to_value_impl<Value>(is);
 }
 
@@ -146,7 +136,7 @@ inline Value to_value(const std::basic_string<char, Ts...>& string)
 template <typename DestString> 
 inline DestString escape_as(const char* string)
 {
-    icstrstream is(string);   
+    istrstream is(string);
     return internal::escape_impl<DestString>(is);
 }
 
@@ -195,16 +185,16 @@ template <typename DestString, typename SrcString,
     iutil::enable_if_t<iutil::is_instance_of_basic_string<SrcString, char>::value> = 0>
 inline DestString escape_as(const SrcString& string)
 {
-    istdstrstream is(string);
+    istrstream is(string);
     return internal::escape_impl<DestString>(is);
 }
 
 // Escape string.
-template <typename Traits, typename Allocator>
-inline std::basic_string<Traits, Allocator> escape(const std::basic_string<Traits, Allocator>& string)
+template <typename Allocator>
+inline std::basic_string<std::char_traits<char>, Allocator> escape(const std::basic_string<std::char_traits<char>, Allocator>& string)
 {
-    istdstrstream is(string);
-    return internal::escape_impl<std::basic_string<Traits, Allocator>>(is);
+    istrstream is(string);
+    return internal::escape_impl<std::basic_string<std::char_traits<char>, Allocator>>(is);
 }
 
 // -------------------------------------------------------------------
@@ -214,7 +204,7 @@ inline std::basic_string<Traits, Allocator> escape(const std::basic_string<Trait
 template <typename DestString>
 inline DestString unescape_as(const char* string)
 {
-    icstrstream is(string);
+    istrstream is(string);
     return internal::unescape_impl<DestString>(is);
 }
 
@@ -263,15 +253,15 @@ template <typename DestString, typename SrcString,
     iutil::enable_if_t<iutil::is_instance_of_basic_string<SrcString, char>::value> = 0>
     inline DestString unescape_as(const SrcString& string)
 {
-    istdstrstream is(string);
+    istrstream is(string);
     return internal::unescape_impl<DestString>(is);
 }
 
 // Unescape string.
-template <typename Traits, typename Allocator>
-inline std::basic_string<Traits, Allocator> unescape(const std::basic_string<Traits, Allocator>& string)
+template <typename Allocator>
+inline std::basic_string<std::char_traits<char>, Allocator> unescape(const std::basic_string<std::char_traits<char>, Allocator>& string)
 {
-    return unescape_as<std::basic_string<Traits, Allocator>>(string);
+    return unescape_as<std::basic_string<std::char_traits<char>, Allocator>>(string);
 }
 
 // -------------------------------------------------------------------
@@ -280,17 +270,17 @@ inline std::basic_string<Traits, Allocator> unescape(const std::basic_string<Tra
 template <typename Istream, typename Ostream>
     inline void transfer_string(Istream& src, Ostream& dest)
 {
-    wrap_std_istream_t<Istream&> is(src);
-    wrap_std_ostream_t<Ostream&> os(dest);
+    sijson_istream_t<Istream&> is(src);
+    sijson_ostream_t<Ostream&> os(dest);
 
-    if (!iutil::skip_ws(is) || is.peek() != '"') 
+    if (!iutil::skip_ws(is) || is.peek() != 0x22) // '"'
         goto fail;
 
     is.take(); // open quotes
-    os.put('"');
-    while (!is.end() && is.peek() != '"')
+    os.put(0x22); // '"'
+    while (!is.end() && is.peek() != 0x22) // '"'
     {
-        if (is.peek() != '\\')
+        if (is.peek() != 0x5c) // '\'
             os.put(is.take());
         else
         {
@@ -302,7 +292,7 @@ template <typename Istream, typename Ostream>
     
     if (is.end()) goto fail;
     is.take(); // close quotes
-    os.put('"');
+    os.put(0x22); // '"'
 
     return;
 fail:
@@ -429,13 +419,13 @@ inline std::string pretty_print(Istream& stream, unsigned tab_size = 2)
 
 inline std::string pretty_print(const char* json, std::size_t len, unsigned tab_size = 2)
 {
-    imemstream is(json, len);
+    istrstream is(json, len);
     return pretty_print(is, tab_size);
 }
 
 inline std::string pretty_print(const char* json, unsigned tab_size = 2)
 {
-    icstrstream is(json);
+    istrstream is(json);
     return pretty_print(is, tab_size);
 }
 
