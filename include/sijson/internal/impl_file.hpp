@@ -64,8 +64,12 @@ public:
     inline bool is_open(void) const noexcept { return m_fptr != nullptr; }
 
     // Can be called only once, before any other operations on the file.
-    // The file must be open.
-    inline void set_unbuffered(void) noexcept { std::setbuf(m_fptr, nullptr); }
+    // The file must be open. Returns true on success.
+    inline bool set_unbuffered(void) noexcept 
+    {
+        // same as setbuf(), but setbuf() is deprecated in MSVC
+        return std::setvbuf(m_fptr, nullptr, _IONBF, 0) == 0;
+    }
 
     // File path encoded as UTF-8.
     inline std::string path(void) const noexcept { return m_fpath; }

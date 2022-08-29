@@ -3,6 +3,7 @@
 #define SIJSON_INTERNAL_BUFFERS_HPP
 
 #include <cstddef>
+#include <cassert>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -15,7 +16,7 @@
 #include <stdexcept>
 
 #include "config.hpp"
-#include "common.hpp"
+#include "core.hpp"
 #include "util.hpp"
 #include "util_memory.hpp"
 
@@ -33,7 +34,7 @@ namespace internal {
 // 
 template <typename T, 
     typename Allocator = std::allocator<T>>
-class buffer : iutil::alloc_holder<Allocator>
+class buffer : private iutil::alloc_holder<Allocator>
 {
 private:
     using Allocholder = iutil::alloc_holder<Allocator>;
@@ -49,7 +50,7 @@ public:
     buffer(std::size_t init_capacity,
         const Allocator& alloc = Allocator()
     ) :
-        Allocholder(alloc),
+        Allocholder(iutil::in_place, alloc),
         m_size(iutil::recommend_allocn_size<T>(this->alloc(), init_capacity)), 
         m_bufp(iutil::alloc_new(this->alloc(), m_size))
     {}
@@ -158,9 +159,7 @@ private:
     inline void copy_assign(const buffer& rhs, Allocator& alloc)
     {
         if (MustReallocate || m_size != rhs.m_size)
-        {
             reallocate_and_copy(alloc, rhs.m_size, rhs.m_bufp, rhs.m_size);
-        } 
         else std::copy(rhs.m_bufp, rhs.m_bufp + rhs.m_size, m_bufp);
     }
 
@@ -193,17 +192,17 @@ private:
 
 
 template <typename T, typename Allocator>
-struct strdata_types
+struct strdata_base
 {
     using long_pointer_t = iutil::alloc_ptr_t<Allocator>;
 
-    using long_pointer_is_pod = iutil::is_pod<long_pointer_t>;
+    using is_long_pointer_pod = iutil::is_pod<long_pointer_t>;
 
     using long_pointer_storage_t = 
         typename std::conditional<
-            long_pointer_is_pod::value,
+            is_long_pointer_pod::value,
             long_pointer_t,
-            iutil::pod_storage<long_pointer_t>
+            iutil::aligned_storage_for<long_pointer_t>
         >::type;
 
     struct long_data
@@ -224,136 +223,25 @@ struct strdata_types
         unsigned char len : 7;
         T buf[SHORT_STRING_CAP];
     };
-};
-
-template <typename T, typename Allocator,
-    bool = strdata_types<T, Allocator>::long_pointer_is_pod::value
->
-struct strdata_base : strdata_types<T, Allocator>
-{   
-    using StrdataTypes = strdata_types<T, Allocator>;
-
-    using long_data = typename StrdataTypes::long_data;
-    using short_data = typename StrdataTypes::short_data;
-    using long_pointer_t = typename StrdataTypes::long_pointer_t;
 
     union data
     {
         long_data long_;
         short_data short_;
-    }
-    m_data;
-
-    // activate as short
+    };
+    
+    // activate short
     strdata_base(void) noexcept { m_data.short_.is_long = 0; }
+
+    // Copies object representation only!
     strdata_base(const data& d) noexcept : m_data(d) {}
 
-    inline void set_is_long(bool value) noexcept
-    {
-        if (value)
-            m_data.long_.is_long = 1;
-        else m_data.short_.is_long = 0;
-    }
+    // default would always copy object representation
+    strdata_base& operator=(const strdata_base&) = delete;
+    strdata_base& operator=(strdata_base&&) = delete;
 
-    inline void long_bufp(long_pointer_t p) noexcept { m_data.long_.bufp = p; }
 
-    inline long_pointer_t long_bufp(void) const noexcept { return m_data.long_.bufp; }
-};
-
-// Fancy pointer support.
-template <typename T, typename Allocator>
-struct strdata_base<T, Allocator, false> : strdata_types<T, Allocator>
-{
-    using StrdataTypes = strdata_types<T, Allocator>;
-
-    using long_data = typename StrdataTypes::long_data;
-    using short_data = typename StrdataTypes::short_data;
-    using long_pointer_t = typename StrdataTypes::long_pointer_t;
-
-    union data
-    {
-        // activate as short
-        data(void) noexcept { short_.is_long = 0; }
-
-        data& operator=(const data& rhs) noexcept
-        {
-            if (this != &rhs)
-            {
-                if (rhs.long_.is_long)
-                {
-                    if (!long_.is_long)
-                        long_.bufp.construct();
-
-                    long_.is_long = rhs.long_.is_long;
-                    long_.cap = rhs.long_.cap;
-                    long_.len = rhs.long_.len;
-                    long_.bufp.get() = rhs.long_.bufp.get();
-                }
-                else {
-                    if (long_.is_long)
-                        long_.bufp.destroy();
-                    short_ = rhs.short_;
-                }
-            }
-            return *this;
-        }
-
-        data(const data& rhs) noexcept 
-        {
-            if (rhs.long_.is_long)
-                long_.bufp.construct(rhs.long_.bufp.get());
-            else short_ = rhs.short_;
-        }
-
-        ~data(void) noexcept
-        {
-            if (long_.is_long)
-                long_.bufp.destroy();
-        }
-
-        long_data long_;
-        short_data short_;
-    }
-    m_data;
-
-    strdata_base(void) noexcept : m_data() {}
-    strdata_base(const data& d) noexcept : m_data(d) {}
-
-    inline void set_is_long(bool value) noexcept
-    {
-        if (value)
-        {
-            if (!m_data.long_.is_long)
-            {
-                m_data.long_.is_long = 1;
-                m_data.long_.bufp.construct();
-            }
-        }
-        else if (m_data.long_.is_long)
-        {
-            m_data.long_.bufp.destroy();
-            m_data.short_.is_long = 0;
-        }
-    }
-
-    inline void long_bufp(const long_pointer_t& p) noexcept { m_data.long_.bufp.get() = p; }
-
-    inline void long_bufp(long_pointer_t&& p) noexcept { m_data.long_.bufp.get() = std::move(p); }
-
-    inline long_pointer_t long_bufp(void) const noexcept { return m_data.long_.bufp.get(); }
-};
-
-template <typename T, typename Allocator>
-struct strdata : strdata_base<T, Allocator>
-{
-    using StrdataBase = strdata_base<T, Allocator>;
-    using data = typename StrdataBase::data;
-
-    strdata(void) noexcept : StrdataBase() {}
-    strdata(const data& d) noexcept : StrdataBase(d) {}
-
-    // Allowed even if long_data is inactive, iff
-    // all members are POD (Common subsequence rule).
+    // All members must be POD to access is_long from an inactive member
     // https://en.cppreference.com/w/cpp/language/data_members#Standard_layout
     inline bool is_long(void) const noexcept { return this->m_data.long_.is_long; }
 
@@ -372,6 +260,108 @@ struct strdata : strdata_base<T, Allocator>
         this->m_data.short_.len = (unsigned char)len;
     }
     inline std::size_t short_len(void) const noexcept { return this->m_data.short_.len; }
+
+    inline void copy_short(const strdata_base& rhs) noexcept { this->m_data.short_ = rhs.m_data.short_; }
+
+protected:
+    data m_data;
+};
+
+template <typename T, typename Allocator,
+    bool = strdata_base<T, Allocator>::is_long_pointer_pod::value
+>
+struct strdata : strdata_base<T, Allocator>
+{   
+    using StrdataBase = strdata_base<T, Allocator>;
+    using long_pointer_t = typename StrdataBase::long_pointer_t;
+    
+    strdata(void) noexcept : StrdataBase() {}
+    strdata(const strdata& rhs) noexcept : StrdataBase(rhs.m_data) {}
+
+    inline strdata& operator=(const strdata& rhs) noexcept { this->m_data = rhs.m_data; }
+
+    inline void set_is_long(bool value) noexcept
+    {
+        if (value)
+            this->m_data.long_.is_long = 1; // activate long_
+        else this->m_data.short_.is_long = 0; // activate short_
+    }
+
+    inline void long_bufp(long_pointer_t p) noexcept { this->m_data.long_.bufp = p; }
+    inline long_pointer_t long_bufp(void) const noexcept { return this->m_data.long_.bufp; }
+};
+
+
+// Fancy pointer support.
+template <typename T, typename Allocator>
+struct strdata<T, Allocator, false> : strdata_base<T, Allocator>
+{
+    using StrdataBase = strdata_base<T, Allocator>;
+    using long_pointer_t = typename StrdataBase::long_pointer_t;
+
+    strdata(void) noexcept : StrdataBase() {}
+
+    strdata(const strdata& rhs) noexcept : StrdataBase()
+    {
+        if (rhs.is_long())
+        {
+            this->m_data.long_.bufp.construct(rhs.m_data.long_.bufp.get());
+            this->m_data.long_.cap = rhs.m_data.long_.cap;
+            this->m_data.long_.len = rhs.m_data.long_.len;
+        }
+        else this->m_data.short_ = rhs.m_data.short_;
+    }
+
+    ~strdata(void) noexcept
+    {
+        if (this->is_long())
+            this->m_data.long_.bufp.destroy();
+    }
+
+    inline strdata& operator=(const strdata& rhs) noexcept
+    {
+        if (this != &rhs)
+        {
+            if (rhs.is_long())
+            {
+                if (!this->is_long())
+                    this->m_data.long_.bufp.construct();
+
+                this->m_data.long_.is_long = rhs.m_data.long_.is_long;
+                this->m_data.long_.cap = rhs.m_data.long_.cap;
+                this->m_data.long_.len = rhs.m_data.long_.len;
+                this->m_data.long_.bufp.get() = rhs.m_data.long_.bufp.get();
+            }
+            else {
+                if (this->is_long())
+                    this->m_data.long_.bufp.destroy();
+                this->m_data.short_ = rhs.m_data.short_;
+            }
+        }
+        return *this;
+    }
+
+    inline void set_is_long(bool value) noexcept
+    {
+        if (value)
+        {
+            if (!this->is_long())
+            {
+                this->m_data.long_.is_long = 1;
+                this->m_data.long_.bufp.construct();
+            }
+        }
+        else if (this->is_long())
+        {
+            this->m_data.long_.bufp.destroy();
+            this->m_data.short_.is_long = 0;
+        }
+    }
+
+    inline void long_bufp(const long_pointer_t& p) noexcept { this->m_data.long_.bufp.get() = p; }
+    inline void long_bufp(long_pointer_t&& p) noexcept { this->m_data.long_.bufp.get() = std::move(p); }
+
+    inline long_pointer_t long_bufp(void) const noexcept { return this->m_data.long_.bufp.get(); }
 };
 
 
@@ -384,7 +374,7 @@ template <typename T,
     typename Traits = std::char_traits<T>, 
     typename Allocator = std::allocator<T>
 >
-class strbuffer : iutil::alloc_holder<Allocator>, strdata<T, Allocator>
+class strbuffer : private iutil::alloc_holder<Allocator>
 {
 private:
     using Allocholder = iutil::alloc_holder<Allocator>;
@@ -404,37 +394,38 @@ public:
     strbuffer(std::size_t init_capacity,
         const Allocator& alloc = Allocator()
     ) :
-        Allocholder(alloc)
+        Allocholder(iutil::in_place, alloc)
     {
-        bool sso = init_capacity <= this->SHORT_STRING_CAP;
-        this->set_is_long(!sso);
+        bool sso = init_capacity <= Strdata::SHORT_STRING_CAP;
+        this->m_str.set_is_long(!sso);
 
-        if (sso) this->short_len(0);
+        if (sso) 
+            this->m_str.short_len(0);
         else
         {
             auto new_cap = iutil::recommend_allocn_size<T>(this->alloc(), init_capacity);
-            this->long_bufp(iutil::alloc_new(this->alloc(), new_cap));
-            this->long_cap(new_cap);
-            this->long_len(0);
+            this->m_str.long_bufp(iutil::alloc_new(this->alloc(), new_cap));
+            this->m_str.long_cap(new_cap);
+            this->m_str.long_len(0);
         }
     }
 
     strbuffer(const Allocator& alloc = Allocator()) :
-        strbuffer(this->SHORT_STRING_CAP, alloc)
+        strbuffer(Strdata::SHORT_STRING_CAP, alloc)
     {}
 
     strbuffer(strbuffer&& rhs) : 
-        Allocholder(rhs), Strdata(rhs.m_data)
+        Allocholder(rhs), m_str(rhs.m_str)
     {
-        if (rhs.is_long())
-            rhs.long_bufp(nullptr);
+        if (rhs.m_str.is_long())
+            rhs.m_str.long_bufp(nullptr);
     }
 
     strbuffer(const strbuffer& rhs) : 
         Allocholder(rhs)
     {
-        if (!rhs.is_long())
-            this->m_data.short_ = rhs.m_data.short_;
+        if (!rhs.m_str.is_long())
+            this->m_str.copy_short(rhs.m_str);
         else 
             copy_assign(rhs, this->alloc());
     }
@@ -471,13 +462,14 @@ public:
             if (iutil::alloc_always_equal_after_move<Allocator>() ||
                 this->alloc() == rhs.alloc())
             {
-                if (this->is_long())
-                    iutil::alloc_unchecked_delete(this->alloc(), this->long_bufp(), this->long_len());
+                if (this->m_str.is_long())
+                    iutil::alloc_unchecked_delete(this->alloc(), 
+                        this->m_str.long_bufp(), this->m_str.long_len());
 
                 // steal
-                this->m_data = rhs.m_data;
-                if (rhs.is_long()) 
-                    rhs.long_bufp(nullptr);
+                this->m_str = rhs.m_str;
+                if (rhs.m_str.is_long()) 
+                    rhs.m_str.long_bufp(nullptr);
             }
             // else copy (see Allocator requirements)
             else copy_assign(rhs, this->alloc());
@@ -488,13 +480,21 @@ public:
     }
 
     inline std::size_t length(void) const noexcept 
-    { return this->is_long() ? this->long_len() : this->short_len(); }
+    { return this->m_str.is_long() ? this->m_str.long_len() : this->m_str.short_len(); }
+
+    inline void length(std::size_t new_length) noexcept
+    {
+        assert(new_length <= capacity());
+        this->m_str.is_long() ?
+            this->m_str.long_len(new_length) :
+            this->m_str.short_len(new_length);
+    }
 
     inline std::size_t capacity(void) const noexcept 
-    { return this->is_long() ? this->long_cap() : this->SHORT_STRING_CAP; }
+    { return this->m_str.is_long() ? this->m_str.long_cap() : Strdata::SHORT_STRING_CAP; }
 
     // Guaranteed to be at least 1.
-    constexpr std::size_t min_capacity(void) const noexcept { return this->SHORT_STRING_CAP; }
+    constexpr std::size_t min_capacity(void) const noexcept { return Strdata::SHORT_STRING_CAP; }
 
     // New capacity should include space for null-terminator (if any).
     inline void reserve(std::size_t atleast_cap)
@@ -505,39 +505,39 @@ public:
         grow(atleast_cap);
     }
 
-    // Mark available capacity as under use.
-    inline void commit(std::size_t count)
+    // Mark the next count chars as under use.
+    inline void commit(std::size_t count) 
     {
         assert(length() + count <= capacity());
-        this->is_long() ? 
-            this->long_len(this->long_len() + count) : 
-            this->short_len(this->short_len() + count);
+        this->m_str.is_long() ?
+            this->m_str.long_len(this->m_str.long_len() + count) :
+            this->m_str.short_len(this->m_str.short_len() + count);
     }
 
     inline iterator begin(void) noexcept 
     { 
-        return this->is_long() ? 
-            iutil::to_address(this->long_bufp()) : this->short_bufp(); 
+        return this->m_str.is_long() ?
+            iutil::to_address(this->m_str.long_bufp()) : this->m_str.short_bufp();
     }
 
     inline iterator end(void) noexcept
     { 
-        return this->is_long() ? 
-            iutil::to_address(this->long_bufp()) + this->long_len() :
-            this->short_bufp() + this->short_len(); 
+        return this->m_str.is_long() ?
+            iutil::to_address(this->m_str.long_bufp()) + this->m_str.long_len() :
+            this->m_str.short_bufp() + this->m_str.short_len();
     }
 
     inline const_iterator begin(void) const noexcept
     {
-        return this->is_long() ?
-            iutil::to_address(this->long_bufp()) : this->short_bufp();
+        return this->m_str.is_long() ?
+            iutil::to_address(this->m_str.long_bufp()) : this->m_str.short_bufp();
     }
 
     inline const_iterator end(void) const noexcept
     {
-        return this->is_long() ?
-            iutil::to_address(this->long_bufp()) + this->long_len() :
-            this->short_bufp() + this->short_len();
+        return this->m_str.is_long() ?
+            iutil::to_address(this->m_str.long_bufp()) + this->m_str.long_len() :
+            this->m_str.short_bufp() + this->m_str.short_len();
     }
 
     inline T* pbegin(void) noexcept { return iutil::to_address(begin()); }
@@ -554,8 +554,8 @@ public:
 
     ~strbuffer(void)
     {
-        if (this->is_long())
-            iutil::alloc_delete(this->alloc(), this->long_bufp(), this->long_cap());
+        if (this->m_str.is_long())
+            iutil::alloc_delete(this->alloc(), this->m_str.long_bufp(), this->m_str.long_cap());
     }
 
 private:
@@ -572,12 +572,12 @@ private:
         Traits::copy(iutil::to_address(bufp), src, len);
 
         if (!IsShort)
-            iutil::alloc_unchecked_delete(this->alloc(), this->long_bufp(), this->long_cap());
-        else this->set_is_long(true);
+            iutil::alloc_unchecked_delete(this->alloc(), this->m_str.long_bufp(), this->m_str.long_cap());
+        else this->m_str.set_is_long(true);
 
-        this->long_bufp(bufp);
-        this->long_cap(new_cap);
-        this->long_len(len);
+        this->m_str.long_bufp(bufp);
+        this->m_str.long_cap(new_cap);
+        this->m_str.long_len(len);
 
         guard.disable();
     }
@@ -586,45 +586,53 @@ private:
     template <bool IsShort>
     inline void grow_and_copy(Allocator& alloc, const strbuffer& rhs)
     {
-        grow_and_copy<IsShort>(alloc, rhs.long_len(), iutil::to_address(rhs.long_bufp()), rhs.long_len());
+        grow_and_copy<IsShort>(alloc, rhs.m_str.long_len(), 
+            iutil::to_address(rhs.m_str.long_bufp()), rhs.m_str.long_len());
     }
 
     inline void grow(std::size_t atleast_cap)
     {
-        if (!this->is_long())
-            grow_and_copy<true>(this->alloc(), atleast_cap, this->short_bufp(), this->short_len());
+        if (!this->m_str.is_long())
+            grow_and_copy<true>(this->alloc(), atleast_cap, 
+                this->m_str.short_bufp(), this->m_str.short_len());
         else
-            grow_and_copy<false>(this->alloc(), atleast_cap, iutil::to_address(this->long_bufp()), this->long_len());
+            grow_and_copy<false>(this->alloc(), atleast_cap, 
+                iutil::to_address(this->m_str.long_bufp()), this->m_str.long_len());
     }
 
     // Assumes this != &rhs.
     template <bool MustReallocate = false>
     inline void copy_assign(const strbuffer& rhs, Allocator& alloc)
     {
-        if (!this->is_long())
+        if (!this->m_str.is_long())
         {
-            if (!rhs.is_long()) {
-                this->m_data.short_ = rhs.m_data.short_;
+            if (!rhs.m_str.is_long()) {
+                this->m_str.copy_short(rhs.m_str);
             }
-            else if (rhs.long_len() <= this->SHORT_STRING_CAP)
+            else if (rhs.m_str.long_len() <= Strdata::SHORT_STRING_CAP)
             {
-                Traits::copy(this->short_bufp(), iutil::to_address(rhs.long_bufp()), rhs.long_len());
-                this->short_len(rhs.long_len());
+                Traits::copy(this->m_str.short_bufp(), 
+                    iutil::to_address(rhs.m_str.long_bufp()), rhs.m_str.long_len());
+                this->m_str.short_len(rhs.m_str.long_len());
             }
             else grow_and_copy<true>(alloc, rhs);
         }
-        else if (!rhs.is_long())
+        else if (!rhs.m_str.is_long())
         {
-            iutil::alloc_unchecked_delete(this->alloc(), this->long_bufp(), this->long_cap());
-            this->m_data = rhs.m_data;
+            iutil::alloc_unchecked_delete(this->alloc(), this->m_str.long_bufp(), this->m_str.long_cap());
+            this->m_str = rhs.m_str;
         }
-        else if (!MustReallocate && rhs.long_len() <= this->long_cap())
+        else if (!MustReallocate && rhs.m_str.long_len() <= this->m_str.long_cap())
         {
-            Traits::copy(iutil::to_address(this->long_bufp()), iutil::to_address(rhs.long_bufp()), rhs.long_len());
-            this->long_len(rhs.long_len());
+            Traits::copy(iutil::to_address(this->m_str.long_bufp()), 
+                iutil::to_address(rhs.m_str.long_bufp()), rhs.m_str.long_len());
+            this->m_str.long_len(rhs.m_str.long_len());
         }
         else grow_and_copy<false>(alloc, rhs);
     }
+
+private:
+    Strdata m_str;
 };
 
 

@@ -213,7 +213,7 @@ using raw_ascii_reader = raw_reader<ENCODING_utf8, Istream>;
 // ASCII JSON reader.
 template <typename Istream,
     // Allocator type used for internal purposes/book-keeping.
-    typename Allocator = std::allocator<void>>
+    typename Allocator = std::allocator<iutil::placeholder>>
 class ascii_reader : public internal::rw_base<Allocator>
 {
 public:

@@ -16,7 +16,6 @@ namespace internal {
 namespace util {
 
 #ifdef __cpp_lib_to_address
-
 using std::to_address;
 #else
 
@@ -60,7 +59,7 @@ inline auto to_address(const Ptr& p) noexcept -> decltype(to_address(p.operator-
 // clang, gcc have a builtin (__builtin_launder)
 //
 #if defined(__cpp_lib_launder) || \
-    _MSC_FULL_VER >= 191426428 || \
+    (_MSC_FULL_VER >= 191426428 && SIJSON_CPLUSPLUS >= 201703L) || \
     (_LIBCPP_VERSION >= 6000 && _LIBCPP_STD_VER > 14)
 
 using std::launder;
@@ -136,8 +135,8 @@ private:
     // see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=43976,
     // this applies the workaround from there.
     //
-    // todo: this is a temporary fix for GCC only since anything other than
-    // alignas(T) unsigned char[sizeof(T)] is technically UB since P0137R1.
+    // todo: this is a temporary fix for GCC only since using anything but an
+    // unsigned char array for storage is technically UB since P0137R1.
     // see https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2019/p1413r2.pdf
     //
 #ifdef __GNUC__

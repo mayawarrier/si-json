@@ -42,14 +42,6 @@ template <typename A, typename B, typename T = int>
 using enable_if_same_t = enable_if_t<std::is_same<A, B>::value, T>;
 
 
-// True if T is an instance of the template Templ.
-template <typename T, template <typename...> class Templ>
-struct is_instance_of : std::false_type {};
-
-template <typename ...TemplArgs, template <typename...> class Templ>
-struct is_instance_of<Templ<TemplArgs...>, Templ> : std::true_type {};
-
-
 #if defined (__cpp_lib_logical_traits) || SIJSON_CPLUSPLUS >= 201703L
 template <typename ...Bn>
 using conjunction = std::conjunction<Bn...>;
@@ -110,6 +102,29 @@ struct in_place_t
 static constexpr in_place_t in_place{};
 
 
+// Workaround for std::allocator<void> deprecation warnings 
+// even though it only exists as a placeholder for rebind
+struct placeholder {};
+
+
+// True if T is an instance of the template Templ.
+template <typename T, template <typename...> class Templ>
+struct is_instance_of : std::false_type {};
+
+template <typename ...TemplArgs, template <typename...> class Templ>
+struct is_instance_of<Templ<TemplArgs...>, Templ> : std::true_type {};
+
+
+template <typename T, bool Enable>
+struct add_const_if { using type = T; };
+
+template <typename T>
+struct add_const_if<T, true> { using type = const T; };
+
+template <typename T, bool Enable>
+using add_const_if_t = typename add_const_if<T, Enable>::type;
+
+
 static constexpr auto int32_max = 0x7FFFFFFF;
 static constexpr auto int32_min = -0x7FFFFFFF - 1;
 static constexpr auto uint32_max = 0xFFFFFFFF;
@@ -122,7 +137,11 @@ static constexpr auto uint64_max = 0xFFFFFFFFFFFFFFFF;
 template <typename T>
 inline std::string nameof(void)
 {
-#if SIJSON_HAS_CXXABI_H
+#ifdef _MSC_VER
+// MSVC demangles these already
+return typeid(T).name();
+
+#elif SIJSON_HAS_CXXABI_H
     int status = -1;
     std::size_t size = 0;
     char* name = abi::__cxa_demangle(typeid(T).name(), NULL, &size, &status);
@@ -133,12 +152,11 @@ inline std::string nameof(void)
         sname.assign(name, size);
         std::free(name);
     }
-    else sname.assign(typeid(T).name());
+    else {
+        sname.assign("typeid: ");
+        sname.append(typeid(T).name());
+    }
     return sname;
-
-#elif defined(_MSC_VER)
-    // MSVC demangles these already
-    return typeid(T).name();
 #else
     return std::string("typeid: ") + typeid(T).name();
 #endif
@@ -272,7 +290,14 @@ constexpr make_unsigned_t<T> absu(T value) noexcept
         std::numeric_limits<make_unsigned_t<T>>::digits > std::numeric_limits<T>::digits,
         "Platform not supported.");
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4146) // unary minus operator applied to unsigned type
+#endif
     return value < 0 ? -static_cast<make_unsigned_t<T>>(value) : value;
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 }
 
 // Negate an unsigned integral type. Converts to signed equivalent.
@@ -286,8 +311,15 @@ constexpr
 #endif
 T uneg(make_unsigned_t<T> uvalue) noexcept
 {
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4146) // unary minus operator applied to unsigned type
+#endif
     static_assert(lbound < 0 && ubound > 0 &&
         absu(lbound) >= ubound, "Invalid lower or upper bound.");
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 #ifndef NDEBUG
     assert(uvalue <= absu(lbound));
@@ -381,7 +413,7 @@ inline bool skip_ws(Istream& stream, std::size_t& out_finalpos)
 // True if T is a type designated to access raw memory.
 template <typename T>
 using is_byte_like = std::integral_constant<bool,
-#if defined(__cpp_lib_byte) || SIJSON_CPLUSPLUS >= 201703L
+#if SIJSON_HAS_STDBYTE
     std::is_same<T, std::byte>::value ||
 #endif
     std::is_same<T, unsigned char>::value ||

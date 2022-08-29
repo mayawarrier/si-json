@@ -180,7 +180,7 @@ using raw_ascii_writer = raw_writer<ENCODING_utf8, Ostream>;
 // ASCII JSON writer.
 template <typename Ostream, 
     // Allocator type used for internal purposes/book-keeping.
-    typename Allocator = std::allocator<void>>
+    typename Allocator = std::allocator<iutil::placeholder>>
 class ascii_writer : public internal::rw_base<Allocator>
 {
 public:
@@ -357,8 +357,12 @@ template <encoding Encoding, typename Ostream>
 template <typename FloatT>
 inline void raw_writer<Encoding, Ostream>::write_floating_impl(JsonOstream& stream, FloatT value)
 {
+#if SIJSON_PREFER_LOGIC_ERRORS
     if (!std::isfinite(value))
         throw std::invalid_argument("Value is NAN or infinity.");
+#else
+    assert(std::is_finite(value));
+#endif
 
     char strbuf[iutil::max_chars10<FloatT>::value];
     internal::memspanbuf streambuf(strbuf, std::ios_base::out);
@@ -448,8 +452,13 @@ template <typename Ostream, typename Allocator>
 template <typename Func>
 inline void ascii_writer<Ostream, Allocator>::write_key_impl(Func do_write, bool is_null)
 {
+#if SIJSON_PREFER_LOGIC_ERRORS
     if (is_null) 
         throw std::invalid_argument("Key is null.");
+#else
+    assert(!is_null);
+    (void)is_null;
+#endif
 
     this->template assert_rule<DOCNODE_key>();
 
@@ -477,8 +486,13 @@ template <typename Value, typename Func>
 inline void ascii_writer<Ostream, Allocator>::write_key_value_impl(
     Func do_write_key, bool is_key_null, const Value& value)
 {
-    if (is_key_null) 
+#if SIJSON_PREFER_LOGIC_ERRORS
+    if (is_key_null)
         throw std::invalid_argument("Key is null.");
+#else
+    assert(!is_key_null);
+    (void)is_key_null;
+#endif
 
     this->template assert_rule<DOCNODE_key, DOCNODE_value>();
 
