@@ -60,29 +60,20 @@ inline const char* doc_node_name(doc_node_type type)
     }
 }
 
-
+namespace tag
+{
 // Tag type: string stream should be null-terminated.
-struct null_terminated_t
+struct null_terminated
 {
-    constexpr explicit null_terminated_t() = default;
+    constexpr explicit null_terminated() = default;
 };
-static constexpr null_terminated_t null_terminated{};
 
-
-// Tag type: stream should throw if an I/O operation will not succeed
-// as it will exhaust the stream before the operation is complete.
-struct throw_on_overflow_t
+// Tag type: throw if an I/O operation may result in buffer overflow.
+struct throw_on_overflow
 {
-    constexpr explicit throw_on_overflow_t() = default;
+    constexpr explicit throw_on_overflow() = default;
 };
-static constexpr throw_on_overflow_t throw_on_overflow{};
-
-
-#if SIJSON_HAS_STDBYTE
-using byte = std::byte;
-#else
-using byte = unsigned char;
-#endif
+}
 
 
 // Describes a continguous section of memory.
@@ -316,6 +307,18 @@ template <> struct encoding_traits<ENCODING_utf16be> { using char_type = char16_
 template <> struct encoding_traits<ENCODING_utf32> { using char_type = char32_t; };
 template <> struct encoding_traits<ENCODING_utf32le> { using char_type = char32_t; };
 template <> struct encoding_traits<ENCODING_utf32be> { using char_type = char32_t; };
+
+
+//template <typename CharT>
+//struct encoded_char_traits {};
+//
+//template <> struct encoded_char_traits<char> { static constexpr encoding encoding = ENCODING_utf8; };
+//template <> struct encoded_char_traits<char16_t> { static constexpr encoding encoding = ENCODING_utf16; };
+//template <> struct encoded_char_traits<char32_t> { static constexpr encoding encoding = ENCODING_utf32; };
+//
+//#ifdef __cpp_char8_t
+//template <> struct encoded_char_traits<char8_t> { static constexpr encoding encoding = ENCODING_utf8; };
+//#endif
 
 }
 

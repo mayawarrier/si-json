@@ -66,7 +66,7 @@ struct is_ostream : std::false_type {};
 // -- Put a character.
 // - put(char_type c, std::size_t count); 
 // -- Put the same character count times.
-// - putn(const char_type* s, std::size_t count); 
+// - put_n(const char_type* s, std::size_t count); 
 // -- Put count characters from the array pointed to by s.
 // -streamsize_type outpos();
 // -- Get output position.
@@ -84,7 +84,7 @@ struct is_ostream<T, CharT, iutil::void_t<
     internal::check_stream_has_valid_member_types<T, CharT>,
     decltype(std::declval<T>().put(std::declval<CharT>())),
     decltype(std::declval<T>().put(std::declval<CharT>(), std::declval<std::size_t>())),
-    decltype(std::declval<T>().putn(std::declval<const CharT*>(), std::declval<std::size_t>())),
+    decltype(std::declval<T>().put_n(std::declval<const CharT*>(), std::declval<std::size_t>())),
     iutil::enable_if_same_t<decltype(std::declval<T>().outpos()), typename T::streamsize_type>,
     decltype(std::declval<T>().flush())>> :
     std::true_type
@@ -138,11 +138,11 @@ struct is_contiguous_ostream : std::false_type {};
 // -- Pointer to the next char modified by put().
 // - outcommit(streamsize_type count);
 // -- Mark the next count characters in the stream as initialized
-// -- (i.e. the same as having been written by put() or putn()).
+// -- (i.e. the same as having been written by put() or put_n()).
 // -- A call to this must only be required if stream data in the range 
 // -- [outpcur(), outpend()) has been modified through pointers derived from 
 // -- outpbegin(), outpcur(), or outpend(). If count is larger than the 
-// -- remaining writable memory, the behavior is undefined. After this call,
+// -- remaining reserved memory, the behavior is undefined. After this call,
 // -- outpos() increases by count.
 //
 // The following conditions are also expected to hold:

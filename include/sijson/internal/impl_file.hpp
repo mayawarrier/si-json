@@ -4,20 +4,10 @@
 
 #include <cstddef>
 #include <cstdio>
-#include <limits>
-#include <ios>
-#include <string>
-#include <sstream>
 #include <utility>
-#include <type_traits>
 #include <stdexcept>
 
-// convert wide path to utf8
-#if defined(_MSC_VER) && _MSVC_LANG < 201703L
-#include <locale>
-#include <codecvt>
-#endif
-
+#include "util.hpp"
 
 namespace sijson {
 namespace internal {
@@ -27,20 +17,22 @@ class file
 public:
     static constexpr std::size_t SYS_BUFSIZE = BUFSIZ;
 
+    // A better default than SYS_BUFSIZE.
+    static constexpr std::size_t DEFAULT_BUFSIZE =
+        iutil::uround_up(static_cast<std::size_t>(16384), SYS_BUFSIZE);
+
+public:
     file(const char filepath[], const char mode[]) :
-        m_fpath(filepath),
         m_fptr(file::open(filepath, mode))
     {}
 
 #ifdef _MSC_VER
     file(const wchar_t filepath[], const wchar_t mode[]) :
-        m_fpath(file::to_utf8path(filepath)),
         m_fptr(file::wopen(filepath, mode))
     {}
 #endif
 
     file(file&& rhs) noexcept : 
-        m_fpath(std::move(rhs.m_fpath)),
         m_fptr(rhs.m_fptr)
     {
         rhs.m_fptr = nullptr;
@@ -53,7 +45,6 @@ public:
     {
         if (this != &rhs)
         {
-            m_fpath = std::move(rhs.m_fpath);
             m_fptr = rhs.m_fptr;
             rhs.m_fptr = nullptr;
         }
@@ -67,12 +58,9 @@ public:
     // The file must be open. Returns true on success.
     inline bool set_unbuffered(void) noexcept 
     {
-        // same as setbuf(), but setbuf() is deprecated in MSVC
+        // setbuf() is deprecated in MSVC, use setvbuf instead
         return std::setvbuf(m_fptr, nullptr, _IONBF, 0) == 0;
     }
-
-    // File path encoded as UTF-8.
-    inline std::string path(void) const noexcept { return m_fpath; }
 
     template <typename T>
     inline std::size_t read(T* buffer, std::size_t count) noexcept
@@ -135,22 +123,9 @@ private:
             file = nullptr;
         return file;
     }
-
-    static inline std::string to_utf8path(const wchar_t filepath[])
-    {
-#if _MSVC_LANG < 201703L
-        std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> conv;
-        return conv.to_bytes(filepath);
-#else
-        // todo when std::path support is added
-        // path string is used only for diagnostics at the moment
-        return "<wide filepath>";
-#endif
-    }
 #endif
 
 private:
-    std::string m_fpath;
     std::FILE* m_fptr;
 };
 }

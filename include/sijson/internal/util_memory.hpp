@@ -112,7 +112,7 @@ public:
 
     inline T* ptr(void) noexcept
     {
-#if SIJSON_USE_LAUNDER_TO_ACCESS_ALIGNED_BYTE_STORAGE
+#if SIJSON_USE_LAUNDER_FOR_ALIGNED_BYTE_STORAGE
         return iutil::launder(reinterpret_cast<T*>(&m_buf));
 #else
         return reinterpret_cast<T*>(&m_buf);
@@ -120,7 +120,7 @@ public:
     }
     inline const T* ptr(void) const noexcept
     {
-#if SIJSON_USE_LAUNDER_TO_ACCESS_ALIGNED_BYTE_STORAGE
+#if SIJSON_USE_LAUNDER_FOR_ALIGNED_BYTE_STORAGE
         return iutil::launder(reinterpret_cast<const T*>(&m_buf));
 #else
         return reinterpret_cast<const T*>(&m_buf);

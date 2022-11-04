@@ -21,8 +21,7 @@
 #include "core.hpp"
 #include "number.hpp"
 #include "stringstream.hpp"
-#include "encoding.hpp"
-#include "stream_adapters.hpp"
+#include "stream_wrappers.hpp"
 
 
 namespace sijson {
@@ -32,9 +31,8 @@ template <encoding Encoding, typename Ostream>
 class raw_writer
 {
 private:
-    using JsonOstream = sijson_ostream_t<Ostream>;    
+    using JsonOstream = typename ostream_traits<Ostream>::template wrapper_type_or<Ostream>;
     using CharT = typename Ostream::char_type;
-    using Encoder = utf8; // for now
 
 public:
     //using char_type = typename Ostream::char_type;
@@ -65,16 +63,16 @@ public:
 
     inline void write_bool(bool value)
     {
-        constexpr const CharT strue[4] = { 0x74, 0x72, 0x75, 0x65 };
-        constexpr const CharT sfalse[5] = { 0x66, 0x61, 0x6c, 0x73, 0x65 };
+        static constexpr const CharT strue[4] = { 0x74, 0x72, 0x75, 0x65 };
+        static constexpr const CharT sfalse[5] = { 0x66, 0x61, 0x6c, 0x73, 0x65 };
 
-        value ? m_stream.putn(strue, 4) : m_stream.putn(sfalse, 5);
+        value ? m_stream.put_n(strue, 4) : m_stream.put_n(sfalse, 5);
     }
 
     inline void write_null(void) 
     {
-        constexpr const CharT snull[4] = { 0x6e, 0x75, 0x6c, 0x6c };
-        m_stream.putn(snull, 4); 
+        static constexpr const CharT snull[4] = { 0x6e, 0x75, 0x6c, 0x6c };
+        m_stream.put_n(snull, 4); 
     }
 
     // Write string from input stream.
@@ -169,7 +167,7 @@ private:
     };
 
 private:
-    sijson_ostream_t<Ostream&> m_stream;
+    typename ostream_traits<Ostream>::template wrapper_type_or<Ostream&> m_stream;
 };
 
 // for now
@@ -329,7 +327,7 @@ inline void raw_writer<Encoding, Ostream>::write_uint_impl(JsonOstream& stream, 
         value /= 10;
     } while (value != 0);
 
-    stream.putn(strp, strbuf_end - strp);
+    stream.put_n(strp, strbuf_end - strp);
 }
 
 template <encoding Encoding, typename Ostream>
@@ -350,7 +348,7 @@ inline void raw_writer<Encoding, Ostream>::write_int_impl(JsonOstream& stream, I
     if (value < 0)
         *(--strp) = '-';
 
-    stream.putn(strp, strbuf_end - strp);
+    stream.put_n(strp, strbuf_end - strp);
 }
 
 template <encoding Encoding, typename Ostream>
@@ -361,7 +359,7 @@ inline void raw_writer<Encoding, Ostream>::write_floating_impl(JsonOstream& stre
     if (!std::isfinite(value))
         throw std::invalid_argument("Value is NAN or infinity.");
 #else
-    assert(std::is_finite(value));
+    assert(std::isfinite(value));
 #endif
 
     char strbuf[iutil::max_chars10<FloatT>::value];
@@ -373,7 +371,7 @@ inline void raw_writer<Encoding, Ostream>::write_floating_impl(JsonOstream& stre
     sstream << value;
 
     auto strdata = streambuf.data();
-    stream.putn(strdata.begin, strdata.size());
+    stream.put_n(strdata.begin, strdata.size());
 }
 
 template <encoding Encoding, typename Ostream>
@@ -402,13 +400,13 @@ template <encoding Encoding, typename Ostream>
 template <typename Istream>
 inline void raw_writer<Encoding, Ostream>::write_string_from(Istream& is, bool quoted)
 {
-    constexpr const CharT BS_escape[] = { 0x5c, 0x62 };
-    constexpr const CharT FF_escape[] = { 0x5c, 0x66 };
-    constexpr const CharT LF_escape[] = { 0x5c, 0x6e };
-    constexpr const CharT CR_escape[] = { 0x5c, 0x72 };
-    constexpr const CharT HT_escape[] = { 0x5c, 0x74 };
-    constexpr const CharT dquote_escape[] = { 0x5c, 0x22 };
-    constexpr const CharT bslash_escape[] = { 0x5c, 0x5c };
+    static constexpr const CharT BS_escape[] = { 0x5c, 0x62 };
+    static constexpr const CharT FF_escape[] = { 0x5c, 0x66 };
+    static constexpr const CharT LF_escape[] = { 0x5c, 0x6e };
+    static constexpr const CharT CR_escape[] = { 0x5c, 0x72 };
+    static constexpr const CharT HT_escape[] = { 0x5c, 0x74 };
+    static constexpr const CharT dquote_escape[] = { 0x5c, 0x22 };
+    static constexpr const CharT bslash_escape[] = { 0x5c, 0x5c };
 
     if (quoted) m_stream.put(0x22); // '"'
     while (!is.end())
@@ -416,13 +414,13 @@ inline void raw_writer<Encoding, Ostream>::write_string_from(Istream& is, bool q
         char c = is.take();
         switch (c)
         {
-            case 0x08: m_stream.putn(BS_escape, 2); break;
-            case 0x0c: m_stream.putn(FF_escape, 2); break;
-            case 0x0a: m_stream.putn(LF_escape, 2); break;
-            case 0x0d: m_stream.putn(CR_escape, 2); break;
-            case 0x09: m_stream.putn(HT_escape, 2); break;
-            case 0x22: m_stream.putn(dquote_escape, 2); break; // '"'
-            case 0x5c: m_stream.putn(bslash_escape, 2); break; // '\'
+            case 0x08: m_stream.put_n(BS_escape, 2); break;
+            case 0x0c: m_stream.put_n(FF_escape, 2); break;
+            case 0x0a: m_stream.put_n(LF_escape, 2); break;
+            case 0x0d: m_stream.put_n(CR_escape, 2); break;
+            case 0x09: m_stream.put_n(HT_escape, 2); break;
+            case 0x22: m_stream.put_n(dquote_escape, 2); break; // '"'
+            case 0x5c: m_stream.put_n(bslash_escape, 2); break; // '\'
 
             default: m_stream.put(c); break;
         }

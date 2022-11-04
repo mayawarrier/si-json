@@ -9,15 +9,15 @@
 #include <stdexcept>
 #include <type_traits>
 
+#if SIJSON_HAS_STRING_VIEW
+#include <string_view>
+#endif
+
 #include "internal/config.hpp"
 #include "internal/util.hpp"
 #include "internal/buffers.hpp"
 
 #include "core.hpp"
-
-#if SIJSON_HAS_STRING_VIEW
-#include <string_view>
-#endif
 
 
 namespace sijson {
@@ -107,12 +107,11 @@ private:
 };
 
 
-
 // Output string stream.
 template <
     typename CharT,
     typename Allocator = std::allocator<CharT>,
-    typename NullTerminatedT = void
+    typename TNullTerminated = void
 >
 class basic_ostrstream
 {
@@ -125,7 +124,7 @@ public:
     using allocator_type = Allocator;
 
     static constexpr bool is_null_terminated =
-        std::is_same<NullTerminatedT, null_terminated_t>::value;
+        std::is_same<TNullTerminated, tag::null_terminated>::value;
 
 public:
     basic_ostrstream(streamsize_type init_capacity, 
@@ -185,7 +184,7 @@ public:
     // Put characters from an array.
     // If this function fails for any reason, it 
     // has no effect (strong exception guarantee).
-    inline void putn(const char_type* str, std::size_t count)
+    inline void put_n(const char_type* str, std::size_t count)
     {
         m_buf.reserve(m_buf.length() + count);
 
@@ -233,7 +232,7 @@ public:
     { return m_buf.pbegin() + m_buf.capacity() - is_null_terminated; }
 
     // Mark the next count characters in the stream as being initialized 
-    // (i.e. the same as having been written by put() or putn()). A call to this
+    // (i.e. the same as having been written by put() or put_n()). A call to this
     // is only required if you use the pointers outpbegin(), outpcur(), or outpend()
     // to modify stream data. If count is larger than the remaining reserved memory, 
     // the behavior is undefined. After this call, outpos() increases by count.
@@ -263,7 +262,8 @@ private:
 // Output std::basic_string stream.
 template <
     typename CharT,
-    typename Allocator = std::allocator<CharT>>
+    typename Allocator = std::allocator<CharT>
+>
 class basic_ostdstrstream
 {
 private:
@@ -278,7 +278,7 @@ public:
 
     // pedantic check, ensure size_type is at least std::size_t
     static_assert(std::numeric_limits<streamsize_type>::max() >= 
-        std::numeric_limits<std::size_t>::max(), ""); 
+        std::numeric_limits<std::size_t>::max(), "Platform not supported."); 
     
     static constexpr bool is_null_terminated = true;
 
@@ -314,7 +314,7 @@ public:
     // Put characters from an array.
     // If this function fails for any reason, it 
     // has no effect (strong exception guarantee).
-    inline void putn(const char_type* str, std::size_t count) { m_str.append(str, count); }
+    inline void put_n(const char_type* str, std::size_t count) { m_str.append(str, count); }
 
     // Synchronize with target.
     inline void flush(void) {};
@@ -331,13 +331,9 @@ public:
     // Get underlying string.
     inline const string_type& str(void) const& noexcept { return m_str; }
 
-    // Get string move-constructed from underlying string.
-    // On return, stream is left in a valid but unspecified state.
-    inline string_type str(void) && noexcept
-    {
-        String str(std::move(m_str));
-        return str;
-    }
+    // Get rvalue reference to underlying string.
+    // If moved from, stream is left in a valid but unspecified state.
+    inline string_type&& str(void) && noexcept { return std::move(m_str); }
 
 
     // from C++11 onwards,
@@ -367,8 +363,8 @@ private:
 // Fixed size output string stream.
 template <
     typename CharT,
-    typename ThrowOnOverflowT = throw_on_overflow_t,
-    typename NullTerminatedT = void  
+    typename TThrowOnOverflow = tag::throw_on_overflow,
+    typename TNullTerminated = void  
 >
 class basic_ostrspanstream
 {
@@ -380,9 +376,9 @@ public:
     using streamsize_type = std::size_t;
 
     static constexpr bool is_null_terminated =
-        std::is_same<NullTerminatedT, null_terminated_t>::value;
+        std::is_same<TNullTerminated, tag::null_terminated>::value;
     static constexpr bool throw_on_overflow =
-        std::is_same<ThrowOnOverflowT, throw_on_overflow_t>::value;
+        std::is_same<TThrowOnOverflow, tag::throw_on_overflow>::value;
 
 public:
     basic_ostrspanstream(memspan<CharT> dest) :
@@ -447,13 +443,12 @@ public:
     // Put characters from an array.
     // If avail() < count, behavior is undefined
     // unless ThrowOnOverflow is true.
-    inline void putn(const char_type* str, std::size_t count)
+    inline void put_n(const char_type* str, std::size_t count)
         noexcept(!throw_on_overflow)
     {
         check_avail(count);
 
-        // safer to move, str may overlap with input span
-        Traits::move(m_cur, str, count);
+        Traits::copy(m_cur, str, count);
         if (is_null_terminated)
             Traits::assign(m_cur[count], CharT());
         m_cur += count;
@@ -498,7 +493,7 @@ public:
     inline const char_type* outpend(void) const noexcept { return m_span.end - is_null_terminated; }
 
     // Mark the next count characters in the stream as being initialized 
-    // (i.e. the same as having been written by put() or putn()). A call to this
+    // (i.e. the same as having been written by put() or put_n()). A call to this
     // is only required if you use the pointers outpbegin(), outpcur(), or outpend()
     // to modify stream data. If count is larger than the remaining reserved memory, 
     // the behavior is undefined. After this call, outpos() increases by count.
@@ -522,18 +517,57 @@ private:
     CharT* m_cur;
 };
 
+
 using istrstream = basic_istrstream<char>;
+using wistrstream = basic_istrstream<wchar_t>;
+using u16istrstream = basic_istrstream<char16_t>;
+using u32istrstream = basic_istrstream<char32_t>;
 
 using ostrstream = basic_ostrstream<char, std::allocator<char>, void>;
-using ocstrstream = basic_ostrstream<char, std::allocator<char>, null_terminated_t>;
-using ostdstrstream = basic_ostdstrstream<char, std::allocator<char>>;
+using wostrstream = basic_ostrstream<wchar_t, std::allocator<wchar_t>, void>;
+using u16ostrstream = basic_ostrstream<char16_t, std::allocator<char16_t>, void>;
+using u32ostrstream = basic_ostrstream<char32_t, std::allocator<char32_t>, void>;
 
-using ostrspanstream = basic_ostrspanstream<char, throw_on_overflow_t, void>;
-using ocstrspanstream = basic_ostrspanstream<char, throw_on_overflow_t, null_terminated_t>;
+using ocstrstream = basic_ostrstream<char, std::allocator<char>, tag::null_terminated>;
+using wocstrstream = basic_ostrstream<wchar_t, std::allocator<wchar_t>, tag::null_terminated>;
+using u16ocstrstream = basic_ostrstream<char16_t, std::allocator<char16_t>, tag::null_terminated>;
+using u32ocstrstream = basic_ostrstream<char32_t, std::allocator<char32_t>, tag::null_terminated>;
+
+using ostdstrstream = basic_ostdstrstream<char, std::allocator<char>>;
+using wostdstrstream = basic_ostdstrstream<wchar_t, std::allocator<wchar_t>>;
+using u16ostdstrstream = basic_ostdstrstream<char16_t, std::allocator<char16_t>>;
+using u32ostdstrstream = basic_ostdstrstream<char32_t, std::allocator<char32_t>>;
+
+using ostrspanstream = basic_ostrspanstream<char, tag::throw_on_overflow, void>;
+using wostrspanstream = basic_ostrspanstream<wchar_t, tag::throw_on_overflow, void>;
+using u16ostrspanstream = basic_ostrspanstream<char16_t, tag::throw_on_overflow, void>;
+using u32ostrspanstream = basic_ostrspanstream<char32_t, tag::throw_on_overflow, void>;
+
+using ocstrspanstream = basic_ostrspanstream<char, tag::throw_on_overflow, tag::null_terminated>;
+using wocstrspanstream = basic_ostrspanstream<wchar_t, tag::throw_on_overflow, tag::null_terminated>;
+using u16ocstrspanstream = basic_ostrspanstream<char16_t, tag::throw_on_overflow, tag::null_terminated>;
+using u32ocstrspanstream = basic_ostrspanstream<char32_t, tag::throw_on_overflow, tag::null_terminated>;
 
 using unchecked_ostrspanstream = basic_ostrspanstream<char, void, void>;
-using unchecked_ocstrspanstream = basic_ostrspanstream<char, void, null_terminated_t>;
+using unchecked_wostrspanstream = basic_ostrspanstream<wchar_t, void, void>;
+using unchecked_u16ostrspanstream = basic_ostrspanstream<char16_t, void, void>;
+using unchecked_u32ostrspanstream = basic_ostrspanstream<char32_t, void, void>;
 
+using unchecked_ocstrspanstream = basic_ostrspanstream<char, void, tag::null_terminated>;
+using unchecked_wocstrspanstream = basic_ostrspanstream<wchar_t, void, tag::null_terminated>;
+using unchecked_u16ocstrspanstream = basic_ostrspanstream<char16_t, void, tag::null_terminated>;
+using unchecked_u32ocstrspanstream = basic_ostrspanstream<char32_t, void, tag::null_terminated>;
+
+#if __cpp_char8_t
+using u8istrstream = basic_istrstream<char8_t>;
+using u8ostrstream = basic_ostrstream<char8_t, std::allocator<char8_t>, void>;
+using u8ocstrstream = basic_ostrstream<char8_t, std::allocator<char8_t>, tag::null_terminated>;
+using u8ostdstrstream = basic_ostdstrstream<char8_t, std::allocator<char8_t>>;
+using u8ostrspanstream = basic_ostrspanstream<char8_t, tag::throw_on_overflow, void>;
+using u8ocstrspanstream = basic_ostrspanstream<char8_t, tag::throw_on_overflow, tag::null_terminated>;
+using unchecked_u8ostrspanstream = basic_ostrspanstream<char8_t, void, void>;
+using unchecked_u8ocstrspanstream = basic_ostrspanstream<char8_t, void, tag::null_terminated>;
+#endif
 
 }
 

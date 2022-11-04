@@ -12,7 +12,7 @@
 #include "internal/util.hpp"
 
 #include "stringstream.hpp"
-#include "stream_adapters.hpp"
+#include "stream_wrappers.hpp"
 #include "writer.hpp"
 #include "reader.hpp"
 
@@ -31,7 +31,7 @@ inline Value to_value_impl(Istream& is)
     static_assert(!iutil::is_readable_string_type<Value, char>::value,
         "Input is already a string.");
 
-    raw_ascii_reader<Istream> reader(is);
+    raw_reader<Istream> reader(is);
     return reader.template read<Value>();
 }
 
@@ -59,8 +59,8 @@ inline DestString unescape_impl(Istream& is)
     using Allocator = typename DestString::allocator_type;
 
     basic_ostdstrstream<char, Allocator> os;
-    raw_ascii_reader<Istream> reader(is);
-    reader.read_string_into(os, false);
+    raw_reader<Istream> reader(is);
+    reader.read_string_into(os, reader.SREADF_NOQUOTES);
 
     return std::move(os).str();
 }
@@ -266,39 +266,6 @@ inline std::basic_string<std::char_traits<char>, Allocator> unescape(const std::
 
 // -------------------------------------------------------------------
 
-// Transfer quoted string from src to dest without modification.
-template <typename Istream, typename Ostream>
-    inline void transfer_string(Istream& src, Ostream& dest)
-{
-    sijson_istream_t<Istream&> is(src);
-    sijson_ostream_t<Ostream&> os(dest);
-
-    if (!iutil::skip_ws(is) || is.peek() != 0x22) // '"'
-        goto fail;
-
-    is.take(); // open quotes
-    os.put(0x22); // '"'
-    while (!is.end() && is.peek() != 0x22) // '"'
-    {
-        if (is.peek() != 0x5c) // '\'
-            os.put(is.take());
-        else
-        {
-            os.put(is.take());
-            if (is.end()) goto fail;
-            os.put(is.take());
-        }
-    }
-    
-    if (is.end()) goto fail;
-    is.take(); // close quotes
-    os.put(0x22); // '"'
-
-    return;
-fail:
-    throw iutil::parse_error_exp(is.inpos(), "string");
-}
-
 
 template <typename Istream, typename Ostream>
 class pretty_printer
@@ -329,7 +296,7 @@ public:
                     }
                     w.write_whitespace(m_tab_size * (depth + 1));
 
-                    transfer_string(r.stream(), w.stream());
+                    r.read_string_into(w.stream(), r.SREADF_NOUNESCAPE);
                     r.read_key_separator();
                     w.write_key_separator();
                     w.stream().put(' ');
@@ -378,7 +345,7 @@ public:
                 break;
 
             case TOKEN_string:
-                transfer_string(r.stream(), w.stream());
+                r.read_string_into(w.stream(), r.SREADF_NOUNESCAPE);
                 break;
 
             case TOKEN_boolean:
@@ -396,7 +363,7 @@ public:
     }
 
 private:
-    raw_ascii_reader<Istream> r;
+    raw_reader<Istream> r;
     raw_ascii_writer<Ostream> w;
     unsigned m_tab_size;
 };
@@ -412,7 +379,7 @@ inline void pretty_print(Istream& in, Ostream& out, unsigned tab_size = 2)
 template <typename Istream>
 inline std::string pretty_print(Istream& stream, unsigned tab_size = 2)
 {
-    ostdstrstream os(4);
+    ostdstrstream os;
     pretty_print(stream, os, tab_size);
     return std::move(os).str();
 }

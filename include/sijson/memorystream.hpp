@@ -15,15 +15,14 @@
 namespace sijson {
 
 // Input (contiguous) memory stream.
-// Char type is sijson::byte (std::byte if available, otherwise unsigned char).
 class imemstream
 {
 public:
-    using char_type = sijson::byte;
+    using char_type = char;
     using streamsize_type = std::size_t;
 
 public:
-    imemstream(memspan<const sijson::byte> src) :
+    imemstream(memspan<const char_type> src) :
         m_begin(src.begin), m_cur(src.begin), m_end(src.end)
     {
 #if SIJSON_PREFER_LOGIC_ERRORS
@@ -34,7 +33,7 @@ public:
 #endif
     }
 
-    imemstream(const sijson::byte* src, std::size_t size) :
+    imemstream(const char_type* src, std::size_t size) :
         imemstream({ src, src + size })
     {}
 
@@ -83,13 +82,12 @@ private:
 
 
 // Output (contiguous) memory stream.
-// Char type is sijson::byte (std::byte if available, otherwise unsigned char).
-// This does not optimize for short strings, unlike sijson::ostrstream.
-template <typename Allocator = std::allocator<sijson::byte>>
+// Does not optimize for short strings, unlike sijson::ostrstream.
+template <typename Allocator = std::allocator<char>>
 class basic_omemstream
 {
 public:
-    using char_type = sijson::byte;
+    using char_type = char;
     using streamsize_type = std::size_t;
     using allocator_type = Allocator;
 
@@ -132,7 +130,7 @@ public:
     // Put bytes from an array.
     // If this function fails for any reason, it 
     // has no effect (strong exception guarantee).
-    inline void putn(const char_type* arr, std::size_t count)
+    inline void put_n(const char_type* arr, std::size_t count)
     {
         m_buf.reserve(m_pos + count);
         std::memcpy(&m_buf[m_pos], arr, count);
@@ -162,7 +160,7 @@ public:
     inline const char_type* outpend(void) const noexcept { return m_buf.pend(); }
 
     // Mark the next count characters in the stream as being initialized 
-    // (i.e. the same as having been written by put() or putn()). A call to this
+    // (i.e. the same as having been written by put() or put_n()). A call to this
     // is only required if you use the pointers outpbegin(), outpcur(), or outpend()
     // to modify stream data. If count is larger than the remaining reserved memory, 
     // the behavior is undefined. After this call, outpos() increases by count.
@@ -173,7 +171,7 @@ private:
     streamsize_type m_pos;
 };
 
-using omemstream = basic_omemstream<std::allocator<sijson::byte>>;
+using omemstream = basic_omemstream<std::allocator<char>>;
 
 }
 

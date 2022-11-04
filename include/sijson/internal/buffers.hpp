@@ -24,7 +24,7 @@
 namespace sijson {
 namespace internal {
 
-// Dynamically-allocated resizable contiguous memory buffer.
+// Dynamically-allocated resizable buffer.
 //
 // Elements are default-initialized only if alloc.construct() is non-trivial.
 // All member functions have a strong exception guarantee if alloc.destroy() is noexcept.
@@ -33,7 +33,8 @@ namespace internal {
 // http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2021/p1072r10.html
 // 
 template <typename T, 
-    typename Allocator = std::allocator<T>>
+    typename Allocator = std::allocator<T>
+>
 class buffer : private iutil::alloc_holder<Allocator>
 {
 private:
@@ -240,7 +241,6 @@ struct strdata_base
     strdata_base& operator=(const strdata_base&) = delete;
     strdata_base& operator=(strdata_base&&) = delete;
 
-
     // All members must be POD to access is_long from an inactive member
     // https://en.cppreference.com/w/cpp/language/data_members#Standard_layout
     inline bool is_long(void) const noexcept { return this->m_data.long_.is_long; }
@@ -365,7 +365,7 @@ struct strdata<T, Allocator, false> : strdata_base<T, Allocator>
 };
 
 
-// Buffer with short-string optimization.
+// buffer<> with short-string optimization.
 //
 // Elements are default-initialized only if alloc.construct() is non-trivial.
 // All member functions have a strong exception guarantee if alloc.destroy() is noexcept.
@@ -482,7 +482,7 @@ public:
     inline std::size_t length(void) const noexcept 
     { return this->m_str.is_long() ? this->m_str.long_len() : this->m_str.short_len(); }
 
-    inline void length(std::size_t new_length) noexcept
+    inline void set_length(std::size_t new_length) noexcept
     {
         assert(new_length <= capacity());
         this->m_str.is_long() ?
@@ -696,24 +696,9 @@ protected:
             this->setg(src, src, src + size);
 
         if (m_mode & std::ios_base::out)
-        {
             this->setp(src, src + size);
-            if (m_mode & std::ios_base::ate)
-                safe_pbump(size);
-        }
-        return this;
-    }
 
-private:
-    inline void safe_pbump(std::streamsize count)
-    {
-        constexpr int int_max = std::numeric_limits<int>::max();
-        while (count != 0)
-        {
-            int to_bump = count > int_max ? int_max : (int)count;
-            this->pbump(to_bump);
-            count -= (std::streamsize)to_bump;
-        }
+        return this;
     }
 
 private:

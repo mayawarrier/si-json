@@ -1,6 +1,6 @@
 
-#ifndef SIJSON_STREAM_ADAPTER_HPP
-#define SIJSON_STREAM_ADAPTER_HPP
+#ifndef SIJSON_STREAM_WRAPPERS_HPP
+#define SIJSON_STREAM_WRAPPERS_HPP
 
 #include <cstddef>
 #include <type_traits>
@@ -16,11 +16,13 @@
 namespace sijson {
 
 // Adapts a std::basic_istream to sijson's istream.
-// The adapter does not throw when ios failure bits 
-// are set, which may lead to undefined behavior unless the 
+// 
+// Note: this class respects the user's exception mask, 
+// which can produce undefined behavior in cases other
+// than those allowed by sijson's istream concept.
 // 
 template <typename StdIstream = std::istream>
-class std_istream_adapter
+class std_istream_wrapper
 {
 private:
     using Traits = typename StdIstream::traits_type;
@@ -28,19 +30,19 @@ private:
 public:
     using char_type = typename StdIstream::char_type;
     using streamsize_type = iutil::make_unsigned_t<std::streamoff>;
-    using wrapped_type = StdIstream;
+    using underlying_stream_type = StdIstream;
 
 public:
-    std_istream_adapter(StdIstream& stream) :
+    std_istream_wrapper(StdIstream& stream) :
         m_stream(stream)
     {}
 
-    std_istream_adapter(std_istream_adapter&&) = default;
-    std_istream_adapter(const std_istream_adapter&) = default;
+    std_istream_wrapper(std_istream_wrapper&&) = default;
+    std_istream_wrapper(const std_istream_wrapper&) = default;
 
     // reference member deletes both assignment operators
-    std_istream_adapter& operator=(std_istream_adapter&&) = delete;
-    std_istream_adapter& operator=(const std_istream_adapter&) = delete;
+    std_istream_wrapper& operator=(std_istream_wrapper&&) = delete;
+    std_istream_wrapper& operator=(const std_istream_wrapper&) = delete;
 
     // Get character. If end(), behavior is undefined.
     inline char_type peek(void) { return Traits::to_char_type(m_stream.peek()); }
@@ -69,24 +71,24 @@ private:
 
 // Adapts a std::basic_ostream to this library's ostream.
 template <typename StdOstream = std::ostream>
-class std_ostream_adapter
+class std_ostream_wrapper
 {
 public:
     using char_type = typename StdOstream::char_type;
     using traits_type = typename StdOstream::traits_type;
-    using wrapped_type = StdOstream;
+    using underlying_stream_type = StdOstream;
     
 public:
-    std_ostream_adapter(StdOstream& stream) :
+    std_ostream_wrapper(StdOstream& stream) :
         m_stream(stream)
     {}
 
-    std_ostream_adapter(std_ostream_adapter&&) = default;
-    std_ostream_adapter(const std_ostream_adapter&) = default;
+    std_ostream_wrapper(std_ostream_wrapper&&) = default;
+    std_ostream_wrapper(const std_ostream_wrapper&) = default;
 
     // reference member deletes both assignment operators
-    std_ostream_adapter& operator=(std_ostream_adapter&&) = delete;
-    std_ostream_adapter& operator=(const std_ostream_adapter&) = delete;
+    std_ostream_wrapper& operator=(std_ostream_wrapper&&) = delete;
+    std_ostream_wrapper& operator=(const std_ostream_wrapper&) = delete;
 
     // Put a character.
     inline void put(char_type c) { m_stream.put(c); }
@@ -98,11 +100,14 @@ public:
     }
 
     // Put characters from an array.
-    inline void putn(const char_type* str, std::size_t count)
+    inline void put_n(const char_type* str, std::size_t count)
     {
+#if SIJSON_PREFER_LOGIC_ERRORS
         if (count > std::numeric_limits<std::streamsize>::max())
             throw std::length_error("Size larger than std::streamsize.");
-
+#else
+        assert(count <= std::numeric_limits<std::streamsize>::max());
+#endif
         m_stream.write(str, (std::streamsize)count);
     }
 
@@ -117,20 +122,38 @@ private:
 };
 
 
-// Adapts an istream to sijson's istream.
-// If T inherits from std::basic_istream, this is
-// std_istream_adapter<remove_reference_t<T>>, else T.
 template <typename T>
-using sijson_istream_t = typename std::conditional<
-    iutil::inherits_std_basic_istream<iutil::remove_reference_t<T>>::value,
-    std_istream_adapter<iutil::remove_reference_t<T>>, T>::type;
+struct istream_traits
+{
+    // True if T inherits from std::basic_istream.
+    static constexpr bool is_wrapped = iutil::inherits_std_basic_istream<T>::value;
 
-// Adapts an ostream to sijson's ostream.
-// If T inherits from std::basic_ostream, this is
-// std_ostream_adapter<remove_reference_t<T>>, else T.
+    using type = T;
+    // std_istream_wrapper<T> if T inherits from std::basic_istream, else U.
+    template <typename U>
+    using wrapper_type_or = typename std::conditional<
+        iutil::inherits_std_basic_istream<T>::value, std_istream_wrapper<T>, U>::type;
+};
+
 template <typename T>
-using sijson_ostream_t = typename std::conditional<
-    iutil::inherits_std_basic_ostream<iutil::remove_reference_t<T>>::value,
-    std_ostream_adapter<iutil::remove_reference_t<T>>, T>::type;
+struct ostream_traits
+{
+    // True if T inherits from std::basic_ostream.
+    static constexpr bool is_wrapped = iutil::inherits_std_basic_ostream<T>::value;
+
+    using type = T;
+    // std_ostream_wrapper<T> if T inherits from std::basic_ostream, else U.
+    template <typename U>
+    using wrapper_type_or = typename std::conditional<
+        iutil::inherits_std_basic_ostream<T>::value, std_ostream_wrapper<T>, U>::type;
+};
+
+
+template <typename T>
+using wrap_if_not_sijson_istream_t = typename istream_traits<T>::template wrapper_type_or<T&>;
+
+template <typename T>
+using wrap_if_not_sijson_ostream_t = typename ostream_traits<T>::template wrapper_type_or<T&>;
+
 }
 #endif

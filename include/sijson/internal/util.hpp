@@ -13,6 +13,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <tuple>
 #include <type_traits>
 #include <string>
 #include <iostream>
@@ -26,6 +27,7 @@
 #include <string_view>
 #endif
 
+// abi::__cxa_demangle()
 #if SIJSON_HAS_CXXABI_H
 #include <cxxabi.h>
 #endif
@@ -125,6 +127,14 @@ template <typename T, bool Enable>
 using add_const_if_t = typename add_const_if<T, Enable>::type;
 
 
+template <typename Tuple, typename T>
+struct tuple_has_type;
+
+template <typename T, typename ...Us>
+struct tuple_has_type<std::tuple<Us...>, T> : disjunction<std::is_same<T, Us>...>
+{};
+
+
 static constexpr auto int32_max = 0x7FFFFFFF;
 static constexpr auto int32_min = -0x7FFFFFFF - 1;
 static constexpr auto uint32_max = 0xFFFFFFFF;
@@ -176,16 +186,12 @@ template <typename T>
 using make_signed_t = typename std::make_signed<T>::type;
 
 template <typename T>
-using is_nonbool_integral = std::integral_constant<bool,
-    std::is_integral<T>::value && !std::is_same<T, bool>::value>;
-
-template <typename T>
 using is_nb_signed_integral = std::integral_constant<bool,
-    is_nonbool_integral<T>::value && std::is_signed<T>::value>;
+    !std::is_same<T, bool>::value && std::is_integral<T>::value && std::is_signed<T>::value>;
 
 template <typename T>
 using is_nb_unsigned_integral = std::integral_constant<bool,
-    is_nonbool_integral<T>::value && std::is_unsigned<T>::value>;
+    !std::is_same<T, bool>::value && std::is_integral<T>::value && std::is_unsigned<T>::value>;
 
 // True if T is a POD type (trivial and standard-layout).
 template <typename T>
@@ -195,15 +201,20 @@ using is_pod = std::integral_constant<bool,
     std::is_trivially_destructible<T>::value>;
 
 
-template <typename T, typename CharT>
+template <typename T, typename ValueT>
 struct has_value_type : std::integral_constant<bool, 
-    std::is_same<typename T::value_type, CharT>::value> 
+    std::is_same<typename T::value_type, ValueT>::value> 
 {};
 
-// True if T is basic_string<CharT, ...>.
-template <typename T, typename CharT>
+template <typename T, typename Traits>
+struct has_traits_type : std::integral_constant<bool,
+    std::is_same<typename T::traits_type, Traits>::value>
+{};
+
+// True if T is std::basic_string<CharT, Traits, ...>.
+template <typename T, typename CharT, typename Traits = std::char_traits<CharT>>
 using is_instance_of_basic_string = conjunction<
-    is_instance_of<T, std::basic_string>, has_value_type<T, CharT>>;
+    is_instance_of<T, std::basic_string>, has_value_type<T, CharT>, has_traits_type<T, Traits>>;
 
 #if SIJSON_HAS_STRING_VIEW
 // True if T is basic_string_view<CharT, ...>.
@@ -430,8 +441,7 @@ using is_char8_like = std::integral_constant<bool,
     std::is_same<T, char>::value
 >;
 
-template <typename IStream>
-inline unsigned char btake(IStream& is) { return static_cast<unsigned char>(is.take()); }
+
 
 
 inline std::runtime_error parse_error(std::size_t pos, const std::string& message)

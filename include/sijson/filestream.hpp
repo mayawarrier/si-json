@@ -42,7 +42,7 @@ private:
         assert(bufsize > 0);
 #endif
         if (!m_file.is_open())
-            throw std::runtime_error(std::string("Could not open ") + m_file.path());
+            throw std::runtime_error("Could not open file.");
 
         // disable std buffer
         m_file.set_unbuffered();
@@ -53,14 +53,14 @@ private:
 
 public:
     ifilestream(const char filepath[],
-        std::size_t bufsize = internal::file::SYS_BUFSIZE
+        std::size_t bufsize = internal::file::DEFAULT_BUFSIZE
     ) :
         ifilestream({ filepath, "rb" }, bufsize)
     {}
 
 #ifdef _MSC_VER
     ifilestream(const wchar_t filepath[],
-        std::size_t bufsize = internal::file::SYS_BUFSIZE
+        std::size_t bufsize = internal::file::DEFAULT_BUFSIZE
     ) :
         ifilestream({ filepath, L"rb" }, bufsize)
     {}
@@ -76,7 +76,7 @@ public:
     inline char peek(void) const noexcept { return *m_buf_cur; }
 
     // Extract character. If end(), behavior is undefined.
-    inline char take(void)
+    SIJSON_ALWAYS_INLINE char take(void)
     {
         char c = *m_buf_cur;
 
@@ -119,7 +119,7 @@ public:
     inline void close(void) 
     {
         if (!m_file.close())
-            throw std::runtime_error(std::string("Could not close ") + m_file.path());
+            throw std::runtime_error("Could not close file.");
     }
 
 private:
@@ -135,7 +135,7 @@ private:
 
         std::size_t nread = m_file.read(m_buf.pbegin(), m_buf.capacity());
         if (m_file.error())
-            throw std::runtime_error(std::string("Could not read from ") + m_file.path());
+            throw std::runtime_error("Could not read from file.");
 
         m_buf_last = nread > 0 ? m_buf.pbegin() + nread - 1 : m_buf.pbegin();
         m_buf_cur = m_buf.pbegin();
@@ -188,7 +188,7 @@ private:
         assert(bufsize > 0);
 #endif
         if (!m_file.is_open())
-            throw std::runtime_error(std::string("Could not open ") + m_file.path());
+            throw std::runtime_error("Could not open file.");
 
         // disable std buffer
         m_file.set_unbuffered();
@@ -196,14 +196,14 @@ private:
 
 public:
     ofilestream(const char filepath[],
-        std::size_t bufsize = internal::file::SYS_BUFSIZE
+        std::size_t bufsize = internal::file::DEFAULT_BUFSIZE
     ) :
         ofilestream({ filepath, "wb" }, bufsize)
     {}
 
 #ifdef _MSC_VER
     ofilestream(const wchar_t filepath[],
-        std::size_t bufsize = internal::file::SYS_BUFSIZE
+        std::size_t bufsize = internal::file::DEFAULT_BUFSIZE
     ) :
         ofilestream({ filepath, L"wb" }, bufsize)
     {}
@@ -216,7 +216,7 @@ public:
     ofilestream& operator=(const ofilestream&) = delete;
 
     // Put a character.
-    inline void put(char c)
+    SIJSON_ALWAYS_INLINE void put(char c)
     {
         if (buf_avail() == 0)
             flush_buf();
@@ -226,7 +226,7 @@ public:
     }
 
     // Put the same character multiple times.
-    inline void put(char c, std::size_t count)
+    SIJSON_ALWAYS_INLINE void put(char c, std::size_t count)
     {
         if (count <= buf_avail())
         {
@@ -234,13 +234,11 @@ public:
             m_buf_cur += count;
             m_posn += count;
         }
-        else buffered_write(count, [&](std::size_t n) {
-            std::memset(m_buf_cur, c, n);
-        });
+        else repeat_write(c, count);
     }
 
     // Put characters from an array.
-    inline void putn(const char* str, std::size_t count)
+    SIJSON_ALWAYS_INLINE void put_n(const char* str, std::size_t count)
     {
         if (count <= buf_avail())
         {
@@ -271,7 +269,7 @@ public:
         bool closed = m_file.close();
 
         if (!flushed || !closed)
-            throw std::runtime_error(std::string("Could not close ") + m_file.path());
+            throw std::runtime_error("Could not close file.");
     }
 
     ~ofilestream(void) noexcept
@@ -286,10 +284,10 @@ private:
     
     inline std::runtime_error fwrite_error(void)
     {
-        return std::runtime_error(std::string("Could not write to ") + m_file.path());
+        return std::runtime_error("Could not write to file.");
     }
 
-    template <bool throw_on_error = true>
+    template <bool ThrowOnError = true>
     inline bool flush_buf(void)
     {       
         auto npending = buf_pending();
@@ -297,7 +295,7 @@ private:
         auto nwrote = m_file.write(m_buf.pbegin(), npending);
         if (nwrote != npending)
         {
-            if (throw_on_error)
+            if (ThrowOnError)
                 throw fwrite_error();
             else return false;
         }
@@ -307,8 +305,7 @@ private:
     }
 
     // pos() is unchanged until all bytes are written.
-    template <typename Func>
-    inline void buffered_write(std::size_t count, Func write_some)
+    inline void repeat_write(char c, std::size_t count)
     {
         auto rem = count;
         assert(rem > buf_avail());
@@ -320,7 +317,7 @@ private:
 
             // put n chars each time
             auto n = std::min(rem, buf_avail());
-            write_some(n);
+            std::memset(m_buf_cur, c, n);
             m_buf_cur += n;
             rem -= n;
         }
