@@ -11,8 +11,8 @@
 #include "internal/config.hpp"
 #include "internal/util.hpp"
 
-#include "stringstream.hpp"
-#include "stream_wrappers.hpp"
+#include "io_string.hpp"
+#include "io_wrappers.hpp"
 #include "writer.hpp"
 #include "reader.hpp"
 

@@ -1,13 +1,13 @@
 
-#ifndef SIJSON_INTERNAL_IMPL_FILE_HPP
-#define SIJSON_INTERNAL_IMPL_FILE_HPP
+#ifndef SIJSON_INTERNAL_FILE_HPP
+#define SIJSON_INTERNAL_FILE_HPP
 
 #include <cstddef>
 #include <cstdio>
-#include <utility>
-#include <stdexcept>
 
+#include "config.hpp"
 #include "util.hpp"
+
 
 namespace sijson {
 namespace internal {
@@ -19,17 +19,23 @@ public:
 
     // A better default than SYS_BUFSIZE.
     static constexpr std::size_t DEFAULT_BUFSIZE =
-        iutil::uround_up(static_cast<std::size_t>(16384), SYS_BUFSIZE);
+        iutil::uround_up(static_cast<std::size_t>(SIJSON_FILEBUF_SIZE), SYS_BUFSIZE);
 
 public:
     file(const char filepath[], const char mode[]) :
         m_fptr(file::open(filepath, mode))
-    {}
+    {
+        if (is_open())
+            set_std_unbuffered();
+    }
 
 #ifdef _MSC_VER
     file(const wchar_t filepath[], const wchar_t mode[]) :
         m_fptr(file::wopen(filepath, mode))
-    {}
+    {
+        if (is_open())
+            set_std_unbuffered();
+    }
 #endif
 
     file(file&& rhs) noexcept : 
@@ -52,15 +58,7 @@ public:
     }
 
     // Returns true if file is ready for use.
-    inline bool is_open(void) const noexcept { return m_fptr != nullptr; }
-
-    // Can be called only once, before any other operations on the file.
-    // The file must be open. Returns true on success.
-    inline bool set_unbuffered(void) noexcept 
-    {
-        // setbuf() is deprecated in MSVC, use setvbuf instead
-        return std::setvbuf(m_fptr, nullptr, _IONBF, 0) == 0;
-    }
+    inline bool is_open(void) const noexcept { return m_fptr != nullptr; }   
 
     template <typename T>
     inline std::size_t read(T* buffer, std::size_t count) noexcept
@@ -102,6 +100,12 @@ public:
     ~file(void) noexcept { if (m_fptr) std::fclose(m_fptr); }
 
 private:
+    inline bool set_std_unbuffered(void) noexcept
+    {
+        // setbuf() is deprecated in MSVC
+        return std::setvbuf(m_fptr, nullptr, _IONBF, 0) == 0;
+    }
+
     static inline std::FILE* open(const char filepath[], const char mode[])
     {
 #ifdef _MSC_VER

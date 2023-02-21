@@ -11,15 +11,13 @@
 #include <stdexcept>
 
 #include "internal/util.hpp"
+#include "core.hpp"
 
 
 namespace sijson {
 
-// Adapts a std::basic_istream to sijson's istream.
-// 
-// Note: this class respects the user's exception mask, 
-// which can produce undefined behavior in cases other
-// than those allowed by sijson's istream concept.
+// Wraps a std::basic_istream.
+// Respects the user's exception mask.
 // 
 template <typename StdIstream = std::istream>
 class std_istream_wrapper
@@ -30,73 +28,78 @@ private:
 public:
     using char_type = typename StdIstream::char_type;
     using size_type = iutil::make_unsigned_t<std::streamoff>;
-    using underlying_stream_type = StdIstream;
+    using input_kind = tag::io_basic;
+    using underlying_type = StdIstream;
 
 public:
-    std_istream_wrapper(StdIstream& stream) :
-        m_stream(stream)
+    std_istream_wrapper(StdIstream& is) :
+        m_is(is)
     {}
 
     std_istream_wrapper(std_istream_wrapper&&) = default;
     std_istream_wrapper(const std_istream_wrapper&) = default;
 
-    // reference member deletes both assignment operators
     std_istream_wrapper& operator=(std_istream_wrapper&&) = delete;
     std_istream_wrapper& operator=(const std_istream_wrapper&) = delete;
 
     // Get character. If end(), behavior is undefined.
-    inline char_type peek(void) { return Traits::to_char_type(m_stream.peek()); }
+    inline char_type peek(void) { return Traits::to_char_type(m_is.peek()); }
 
     // Extract character. If end(), behavior is undefined.
-    inline char_type take(void) { return Traits::to_char_type(m_stream.get()); }
+    inline char_type take(void) { return Traits::to_char_type(m_is.get()); }
 
     // Get input position.
     inline size_type ipos(void) 
     {
         // fpos<> is only convertible to std::streamoff
-        return (std::streamoff)m_stream.tellg(); 
+        return (std::streamoff)m_is.tellg(); 
     }
 
-    // True if the last operation completed by reaching the end of the stream.
-    inline bool end(void) const { return m_stream.eof(); }
+    // True if input has run out of characters.
+    inline bool end(void) const { return m_is.eof(); }
 
-    // Jump to the beginning of the stream.
-    inline void rewind(void) { m_stream.seekg(0); }
+    // Jump to the beginning of the input.
+    inline void rewind(void) { m_is.seekg(0); }
 
 private:
-    StdIstream& m_stream;
+    StdIstream& m_is;
 };
 
 
 
-// Adapts a std::basic_ostream to this library's ostream.
+// Wraps a std::basic_ostream.
+// Respects the user's exception mask.
+//
 template <typename StdOstream = std::ostream>
 class std_ostream_wrapper
 {
+private:
+    using Traits = typename StdOstream::traits_type;
+
 public:
     using char_type = typename StdOstream::char_type;
-    using traits_type = typename StdOstream::traits_type;
-    using underlying_stream_type = StdOstream;
+    using size_type = iutil::make_unsigned_t<std::streamoff>;  
+    using output_kind = tag::io_basic;
+    using underlying_type = StdOstream;
     
 public:
-    std_ostream_wrapper(StdOstream& stream) :
-        m_stream(stream)
+    std_ostream_wrapper(StdOstream& os) :
+        m_os(os)
     {}
 
     std_ostream_wrapper(std_ostream_wrapper&&) = default;
     std_ostream_wrapper(const std_ostream_wrapper&) = default;
 
-    // reference member deletes both assignment operators
     std_ostream_wrapper& operator=(std_ostream_wrapper&&) = delete;
     std_ostream_wrapper& operator=(const std_ostream_wrapper&) = delete;
 
     // Put a character.
-    inline void put(char_type c) { m_stream.put(c); }
+    inline void put(char_type c) { m_os.put(c); }
 
-    // Put the same character multiple times.
-    inline void put(char_type c, std::size_t count)
+    // Put a character multiple times.
+    inline void put_f(char_type c, size_type count)
     {
-        std::fill_n(std::ostreambuf_iterator<char_type, traits_type>(m_stream), count, c);
+        std::fill_n(std::ostreambuf_iterator<char_type, Traits>(m_os), count, c);
     }
 
     // Put characters from an array.
@@ -104,21 +107,26 @@ public:
     {
 #if SIJSON_LOGIC_ERRORS
         if (count > std::numeric_limits<std::streamsize>::max())
-            throw std::length_error("Size larger than std::streamsize.");
+            throw std::length_error("Array too large.");
 #else
         assert(count <= std::numeric_limits<std::streamsize>::max());
 #endif
-        m_stream.write(str, (std::streamsize)count);
+        // utos() avoids undefined behavior if count is too large.
+        m_os.write(str, static_cast<std::streamsize>(iutil::utos(count)));
+    }
+
+    // Get output position.
+    inline size_type opos(void) 
+    {
+        // fpos<> is only convertible to std::streamoff
+        return (std::streamoff)m_os.tellp(); 
     }
 
     // Synchronize with target.
-    inline void flush(void) { m_stream.flush(); }
-
-    // Get output position.
-    inline std::size_t opos(void) { return m_stream.tellp(); }
+    inline void flush(void) { m_os.flush(); }
 
 private:
-    StdOstream& m_stream;
+    StdOstream& m_os;
 };
 
 

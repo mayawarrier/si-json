@@ -1,6 +1,9 @@
+/*
+* Modify build configuration here.
+*/
 
-#ifndef SIJSON_CONFIG
-#define SIJSON_CONFIG
+#ifndef SIJSON_CONFIG_HPP
+#define SIJSON_CONFIG_HPP
 
 #include <cstddef>
 
@@ -9,7 +12,6 @@
 #else
 #define SIJSON_CPLUSPLUS __cplusplus
 #endif
-
 
 #ifdef __has_builtin
 #define SIJSON_HAS_BUILTIN(x) __has_builtin(x)
@@ -59,13 +61,34 @@
 #define SIJSON_HAS_STDBYTE 0
 #endif
 
-
-#if SIJSON_HAS_ATTRIBUTE(always_inline)
-#define SIJSON_ALWAYS_INLINE __attribute__((always_inline)) inline
-#elif defined(_MSC_VER)
+#ifdef _MSC_VER
 #define SIJSON_ALWAYS_INLINE __forceinline
+#elif SIJSON_HAS_ATTRIBUTE(always_inline)
+#define SIJSON_ALWAYS_INLINE __attribute__((always_inline)) inline
 #else
 #define SIJSON_ALWAYS_INLINE
+#endif
+
+
+// Change the default file buffer size.
+#ifndef SIJSON_FILEBUF_SIZE
+#define SIJSON_FILEBUF_SIZE (4096)
+#endif
+
+
+// Allow the use of SIMD instructions to improve performance.
+// Define any ONE of the below to specify the SIMD instruction set available.
+//
+#if defined(SIJSON_SSE2) || defined(SIJSON_AVX2)
+#define SIJSON_SIMD
+#endif
+
+
+// Turn on/off asserts in internal library code.
+// This will apply even if NDEBUG is defined.
+//
+#ifndef SIJSON_DEBUG
+#define SIJSON_DEBUG 0
 #endif
 
 
@@ -74,18 +97,19 @@
 // https://en.cppreference.com/w/cpp/types/aligned_storage
 // https://stackoverflow.com/a/70419156
 // This is false for most or all compilers so is disabled by default.
-// Enabling it may incur a performance penalty in GCC.
 //
-#ifndef SIJSON_USE_LAUNDER_FOR_ALIGNED_BYTE_STORAGE
-#define SIJSON_USE_LAUNDER_FOR_ALIGNED_BYTE_STORAGE 0
+#ifndef SIJSON_LAUNDER_ALIGNED_STORAGE
+#define SIJSON_LAUNDER_ALIGNED_STORAGE 0
 #endif
 
 
-// If enabled, logic_errors will be preferred over assert()s where approppriate.
-// This can result in signficant runtime overhead so is disabled by default.
+// If enabled, std::logic_errors will be used in place of 
+// assert()s or std::unreachable() where appropriate.
+// This may cause significant runtime overhead.
 //
-#ifndef SIJSON_PREFER_LOGIC_ERRORS
-#define SIJSON_PREFER_LOGIC_ERRORS 0
+#ifndef SIJSON_LOGIC_ERRORS
+#define SIJSON_LOGIC_ERRORS 0
 #endif
+
 
 #endif

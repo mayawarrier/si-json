@@ -19,9 +19,8 @@
 #include "internal/impl_rw.hpp"
 
 #include "core.hpp"
-#include "number.hpp"
-#include "stringstream.hpp"
-#include "stream_wrappers.hpp"
+#include "io_string.hpp"
+#include "io_wrappers.hpp"
 
 
 namespace sijson {

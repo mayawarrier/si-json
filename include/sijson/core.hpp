@@ -48,13 +48,13 @@ using is_input = iutil::to_bool_t<internal::is_input<T, CharT>>;
 // - put(char_type c); 
 //   Put a character.
 // 
-// - put(char_type c, size_type count); 
+// - put_f(char_type c, size_type count); 
 //   Put a character count times.
 // 
 // - put_n(const char_type* s, size_t count); 
 //   Put count characters from the array s.
 // 
-// - size_type outpos();
+// - size_type opos();
 //   Get output position.
 // 
 // - flush(); 

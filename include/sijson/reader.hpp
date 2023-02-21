@@ -17,8 +17,7 @@
 #include "internal/impl_rw.hpp"
 
 #include "core.hpp"
-#include "number.hpp"
-#include "stringstream.hpp"
+#include "io_string.hpp"
 
 #include "raw_reader.hpp"
 
