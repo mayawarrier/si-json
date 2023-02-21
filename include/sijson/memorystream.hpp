@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cstring>
 #include <memory>
+#include <algorithm>
 #include <stdexcept>
 
 #include "core.hpp"
@@ -14,34 +15,43 @@
 
 namespace sijson {
 
-// Input (contiguous) memory stream.
-class imemstream
+//
+// Input memory.
+// ------------------------
+// Implements ContiguousInput.
+// ------------------------
+// char_type is unsigned char.
+// ------------------------
+//
+class in_mem
 {
 public:
-    using char_type = char;
-    using streamsize_type = std::size_t;
+    using char_type = unsigned char;
+    using size_type = std::size_t;
+    using input_kind = tag::io_contiguous;
 
 public:
-    imemstream(memspan<const char_type> src) :
+    in_mem(memspan<const char_type> src) :
         m_begin(src.begin), m_cur(src.begin), m_end(src.end)
     {
-#if SIJSON_PREFER_LOGIC_ERRORS
+#if SIJSON_LOGIC_ERRORS
         if (!src.begin || !src.end)
-            throw std::invalid_argument(std::string(__func__) + ": source is null.");
+            throw std::invalid_argument(SIJSON_SRCLOC + 
+                iutil::nameof<in_mem>() + ": src is null.");
 #else
         assert(src.begin && src.end);
 #endif
     }
 
-    imemstream(const char_type* src, std::size_t size) :
-        imemstream({ src, src + size })
+    in_mem(const char_type* src, size_type size) :
+        in_mem({ src, src + size })
     {}
 
-    imemstream(imemstream&&) = default;
-    imemstream(const imemstream&) = delete;
+    in_mem(in_mem&&) = default;
+    in_mem(const in_mem&) = delete;
 
-    imemstream& operator=(imemstream&&) = default;
-    imemstream& operator=(const imemstream&) = delete;
+    in_mem& operator=(in_mem&&) = default;
+    in_mem& operator=(const in_mem&) = delete;
 
     // Get byte. If end(), behavior is undefined.
     inline char_type peek(void) const noexcept { return *m_cur; }
@@ -49,30 +59,31 @@ public:
     // Extract byte. If end(), behavior is undefined.
     inline char_type take(void) noexcept { return *m_cur++; }
 
-    // Get input position.
-    inline streamsize_type inpos(void) const noexcept { return (streamsize_type)(m_cur - m_begin); }
+    // True if input has run out of bytes.
+    inline bool end(void) const noexcept { return m_cur == m_end; }
 
-    // True if the last operation reached the end of the stream.
-    inline bool end(void) const noexcept { return m_cur == m_end; }   
-
-    // Jump to the beginning of the stream.
+    // Jump to the beginning.
     inline void rewind(void) noexcept { m_cur = m_begin; }
 
+    // Get input position.
+    inline size_type ipos(void) const noexcept
+    {
+        return (size_type)(m_cur - m_begin);
+    }
 
-    // Pointer to the first byte in the stream.
-    inline const char_type* inpbegin(void) const noexcept { return m_begin; }
+    // Pointer to the first byte.
+    inline const char_type* ipbeg(void) const noexcept { return m_begin; }
 
-    // Pointer to the next byte returned by peek() or take().
-    inline const char_type* inpcur(void) const noexcept { return m_cur; }
+    // Pointer to the current byte.
+    inline const char_type* ipcur(void) const noexcept { return m_cur; }
 
-    // Pointer to one past the last byte in the stream.
-    inline const char_type* inpend(void) const noexcept { return m_end; }
+    // Pointer to one past the last byte.
+    inline const char_type* ipend(void) const noexcept { return m_end; }
 
-    // Mark the next count characters in the stream as read.
-    // If count is larger than the size of the remaining
-    // data in the stream, the behavior is undefined.
-    // After this call, inpos() increases by count.
-    inline void incommit(streamsize_type count) noexcept { m_cur += count; }
+    // Commit the next count bytes (i.e. mark them as 'read'.
+    // Required only if you use ipbeg(), ipcur() or ipend() to read data).
+    // Increments the input position by count.
+    inline void icommit(size_type count) noexcept { m_cur += count; }
 
 private:
     const char_type* m_begin;
@@ -81,32 +92,41 @@ private:
 };
 
 
-// Output (contiguous) memory stream.
-// Does not optimize for short strings, unlike sijson::ostrstream.
-template <typename Allocator = std::allocator<char>>
-class basic_omemstream
+//
+// Output memory.
+// ------------------------
+// Implements ContiguousOutput.
+// ------------------------
+// Does not optimize for short strings (unlike out_str).
+// char_type is unsigned char.
+// Supports custom allocators and fancy pointers.
+// ------------------------
+//
+template <typename Allocator = std::allocator<unsigned char>>
+class basic_out_mem
 {
 public:
-    using char_type = char;
-    using streamsize_type = std::size_t;
+    using char_type = unsigned char;
+    using size_type = std::size_t;
     using allocator_type = Allocator;
+    using output_kind = tag::io_contiguous;
 
 public:
-    basic_omemstream(streamsize_type init_capacity,
+    basic_out_mem(size_type capacity,
         const Allocator& alloc = Allocator()
     ) :
-        m_buf{ init_capacity, alloc }, m_pos(0)
+        m_pos(0), m_buf{ capacity, alloc }
     {}
 
-    basic_omemstream(const Allocator& alloc = Allocator()) :
-        m_buf{ alloc }, m_pos(0)
+    basic_out_mem(const Allocator& alloc = Allocator()) :
+        m_pos(0), m_buf{ alloc }
     {}
 
-    basic_omemstream(basic_omemstream&&) = default;
-    basic_omemstream(const basic_omemstream& rhs) = default;
+    basic_out_mem(basic_out_mem&&) = default;
+    basic_out_mem(const basic_out_mem& rhs) = default;
 
-    basic_omemstream& operator=(basic_omemstream&&) = default;
-    basic_omemstream& operator=(const basic_omemstream&) = default;
+    basic_out_mem& operator=(basic_out_mem&&) = default;
+    basic_out_mem& operator=(const basic_out_mem&) = default;
 
     // Put a byte.
     // If this function fails for any reason, it 
@@ -117,10 +137,10 @@ public:
         m_buf[m_pos++] = c;
     }
 
-    // Put the same byte multiple times.
+    // Put a byte multiple times.
     // If this function fails for any reason, it 
     // has no effect (strong exception guarantee).
-    inline void put(char_type c, std::size_t count)
+    inline void put_f(char_type c, size_type count)
     {
         m_buf.reserve(m_pos + count);
         std::memset(&m_buf[m_pos], c, count);
@@ -137,41 +157,49 @@ public:
         m_pos += count;
     }
 
-    // Synchronize with target (has no effect).
+    // No effect.
     inline void flush(void) {}
 
     // Get output position.
-    inline streamsize_type outpos(void) const noexcept { return m_pos; }
+    inline size_type opos(void) const noexcept { return m_pos; }
 
+    // Increase # reserved bytes to at least new_capacity.
+    // If this function fails for any reason, it 
+    // has no effect (strong exception guarantee).
+    inline void reserve(size_type new_capacity)
+    {
+        m_buf.reserve(new_capacity);
+    }
+ 
+    // Pointer to the first byte.
+    inline char_type* opbeg(void) noexcept { return m_buf.pbegin(); }
 
-    // Pointer to the first byte in the stream.
-    inline char_type* outpbegin(void) noexcept { return m_buf.pbegin(); }
-    // Pointer to the first byte in the stream.
-    inline const char_type* outpbegin(void) const noexcept { return m_buf.pbegin(); }
+    // Pointer to the first byte.
+    inline const char_type* opbeg(void) const noexcept { return m_buf.pbegin(); }
 
-    // Pointer to the next byte modified by put().
-    inline char_type* outpcur(void) noexcept { return m_buf.pbegin() + m_pos; }
-    // Pointer to the next byte modified by put().
-    inline const char_type* outpcur(void) const noexcept { return m_buf.pbegin() + m_pos; }
+    // Pointer to the next writable byte.
+    inline char_type* opcur(void) noexcept { return m_buf.pbegin() + m_pos; }
+
+    // Pointer to the next writable byte.
+    inline const char_type* opcur(void) const noexcept { return m_buf.pbegin() + m_pos; }
 
     // Pointer to one past the last byte of reserved memory.
-    inline char_type* outpend(void) noexcept { return m_buf.pend(); }
-    // Pointer to one past the last byte of reserved memory.
-    inline const char_type* outpend(void) const noexcept { return m_buf.pend(); }
+    inline char_type* opend(void) noexcept { return m_buf.pend(); }
 
-    // Mark the next count characters in the stream as being initialized 
-    // (i.e. the same as having been written by put() or put_n()). A call to this
-    // is only required if you use the pointers outpbegin(), outpcur(), or outpend()
-    // to modify stream data. If count is larger than the remaining reserved memory, 
-    // the behavior is undefined. After this call, outpos() increases by count.
-    inline void outcommit(streamsize_type count) noexcept { m_pos += count; }
+    // Pointer to one past the last byte of reserved memory.
+    inline const char_type* opend(void) const noexcept { return m_buf.pend(); } 
+
+    // Commit the next count bytes (i.e. mark them as 'written to'.
+    // Required only if you use opbeg(), opcur() or opend() to write data).
+    // Increments the output position by count.
+    inline void ocommit(size_type count) noexcept { m_pos += count; }
 
 private:
+    size_type m_pos;
     internal::buffer<char_type, Allocator> m_buf;
-    streamsize_type m_pos;
 };
 
-using omemstream = basic_omemstream<std::allocator<char>>;
+using out_mem = basic_out_mem<std::allocator<unsigned char>>;
 
 }
 
