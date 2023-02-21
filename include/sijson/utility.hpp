@@ -31,7 +31,7 @@ inline Value to_value_impl(Istream& is)
     static_assert(!iutil::is_readable_string_type<Value, char>::value,
         "Input is already a string.");
 
-    raw_reader<Istream> reader(is);
+    simple_reader<Istream> reader(is);
     return reader.template read<Value>();
 }
 
@@ -43,7 +43,7 @@ inline DestString escape_impl(Istream& is)
 
     using Allocator = typename DestString::allocator_type;
 
-    basic_ostdstrstream<char, Allocator> os;
+    basic_out_stdstr<char, Allocator> os;
     raw_ascii_writer<decltype(os)> writer(os);
     writer.write_string_from(is, false);
 
@@ -58,9 +58,9 @@ inline DestString unescape_impl(Istream& is)
 
     using Allocator = typename DestString::allocator_type;
 
-    basic_ostdstrstream<char, Allocator> os;
-    raw_reader<Istream> reader(is);
-    reader.read_string_into(os, reader.SREADF_NOQUOTES);
+    basic_out_stdstr<char, Allocator> os;
+    simple_reader<Istream> reader(is);
+    reader.read_string_into(os, RDFLAG_str_nodelim);
 
     return std::move(os).str();
 }
@@ -75,7 +75,7 @@ template <
     static_assert(!iutil::is_writable_string_type<Value, char>::value,
         "Input is already a string.");
 
-    basic_ostdstrstream<char, Allocator> os;
+    basic_out_stdstr<char, Allocator> os;
     raw_ascii_writer<decltype(os)> writer(os);
     writer.write(value);
 
@@ -99,7 +99,7 @@ inline DestString to_string_as(const Value& value)
 template <typename Value>
 inline Value to_value(const char* string)
 {
-    istrstream is(string);
+    in_str is(string);
     return internal::to_value_impl<Value>(is);
 }
 
@@ -107,7 +107,7 @@ inline Value to_value(const char* string)
 template <typename Value>
 inline Value to_value(const char* string, std::size_t length)
 {
-    istrstream is(string, length);
+    in_str is(string, length);
     return internal::to_value_impl<Value>(is);
 }
 
@@ -116,7 +116,7 @@ inline Value to_value(const char* string, std::size_t length)
 template <typename Value>
 inline Value to_value(std::basic_string_view<char, std::char_traits<char>> strview)
 {
-    istrstream is(strview);
+    in_str is(strview);
     return internal::to_value_impl<Value>(is);
 }
 #endif
@@ -125,7 +125,7 @@ inline Value to_value(std::basic_string_view<char, std::char_traits<char>> strvi
 template <typename Value, typename ...Ts>
 inline Value to_value(const std::basic_string<char, Ts...>& string)
 {
-    istrstream is(string);
+    in_str is(string);
     return internal::to_value_impl<Value>(is);
 }
 
@@ -136,7 +136,7 @@ inline Value to_value(const std::basic_string<char, Ts...>& string)
 template <typename DestString> 
 inline DestString escape_as(const char* string)
 {
-    istrstream is(string);
+    in_str is(string);
     return internal::escape_impl<DestString>(is);
 }
 
@@ -151,7 +151,7 @@ inline std::string escape(const char* string)
 template <typename DestString>
 inline DestString escape_as(const char* string, std::size_t length)
 {
-    istrstream is(string, length);
+    in_str is(string, length);
     return internal::escape_impl<DestString>(is);
 }
 
@@ -168,7 +168,7 @@ template <typename DestString, typename SrcStringView,
     iutil::enable_if_t<iutil::is_instance_of_basic_string_view<SrcStringView, char>::value> = 0>
     inline DestString escape_as(SrcStringView strview)
 {
-    istrstream is(strview);
+    in_str is(strview);
     return internal::escape_impl<DestString>(is);
 }
 
@@ -185,7 +185,7 @@ template <typename DestString, typename SrcString,
     iutil::enable_if_t<iutil::is_instance_of_basic_string<SrcString, char>::value> = 0>
 inline DestString escape_as(const SrcString& string)
 {
-    istrstream is(string);
+    in_str is(string);
     return internal::escape_impl<DestString>(is);
 }
 
@@ -193,7 +193,7 @@ inline DestString escape_as(const SrcString& string)
 template <typename Allocator>
 inline std::basic_string<std::char_traits<char>, Allocator> escape(const std::basic_string<std::char_traits<char>, Allocator>& string)
 {
-    istrstream is(string);
+    in_str is(string);
     return internal::escape_impl<std::basic_string<std::char_traits<char>, Allocator>>(is);
 }
 
@@ -204,7 +204,7 @@ inline std::basic_string<std::char_traits<char>, Allocator> escape(const std::ba
 template <typename DestString>
 inline DestString unescape_as(const char* string)
 {
-    istrstream is(string);
+    in_str is(string);
     return internal::unescape_impl<DestString>(is);
 }
 
@@ -219,7 +219,7 @@ inline std::string unescape(const char* string)
 template <typename DestString>
 inline DestString unescape_as(const char* string, std::size_t length)
 {
-    istrstream is(string, length);
+    in_str is(string, length);
     return internal::unescape_impl<DestString>(is);
 }
 
@@ -236,7 +236,7 @@ template <typename DestString, typename SrcStringView,
     iutil::enable_if_t<iutil::is_instance_of_basic_string_view<SrcStringView, char>::value> = 0>
     inline DestString unescape_as(SrcStringView strview)
 {
-    istrstream is(strview);
+    in_str is(strview);
     return internal::unescape_impl<DestString>(is);
 }
 
@@ -253,7 +253,7 @@ template <typename DestString, typename SrcString,
     iutil::enable_if_t<iutil::is_instance_of_basic_string<SrcString, char>::value> = 0>
     inline DestString unescape_as(const SrcString& string)
 {
-    istrstream is(string);
+    in_str is(string);
     return internal::unescape_impl<DestString>(is);
 }
 
@@ -296,7 +296,7 @@ public:
                     }
                     w.write_whitespace(m_tab_size * (depth + 1));
 
-                    r.read_string_into(w.stream(), r.SREADF_NOUNESCAPE);
+                    r.read_string_into(w.stream(), RDFLAG_str_copy);
                     r.read_key_separator();
                     w.write_key_separator();
                     w.stream().put(' ');
@@ -345,7 +345,7 @@ public:
                 break;
 
             case TOKEN_string:
-                r.read_string_into(w.stream(), r.SREADF_NOUNESCAPE);
+                r.read_string_into(w.stream(), RDFLAG_str_copy);
                 break;
 
             case TOKEN_boolean:
@@ -363,7 +363,7 @@ public:
     }
 
 private:
-    raw_reader<Istream> r;
+    simple_reader<Istream> r;
     raw_ascii_writer<Ostream> w;
     unsigned m_tab_size;
 };
@@ -379,20 +379,20 @@ inline void pretty_print(Istream& in, Ostream& out, unsigned tab_size = 2)
 template <typename Istream>
 inline std::string pretty_print(Istream& stream, unsigned tab_size = 2)
 {
-    ostdstrstream os;
+    out_stdstr os;
     pretty_print(stream, os, tab_size);
     return std::move(os).str();
 }
 
 inline std::string pretty_print(const char* json, std::size_t len, unsigned tab_size = 2)
 {
-    istrstream is(json, len);
+    in_str is(json, len);
     return pretty_print(is, tab_size);
 }
 
 inline std::string pretty_print(const char* json, unsigned tab_size = 2)
 {
-    istrstream is(json);
+    in_str is(json);
     return pretty_print(is, tab_size);
 }
 

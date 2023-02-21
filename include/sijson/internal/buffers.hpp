@@ -18,7 +18,7 @@
 #include "config.hpp"
 #include "core.hpp"
 #include "util.hpp"
-#include "util_memory.hpp"
+#include "memutil.hpp"
 
 
 namespace sijson {
@@ -26,7 +26,7 @@ namespace internal {
 
 // Dynamically-allocated resizable buffer.
 //
-// Elements are default-initialized only if alloc.construct() is non-trivial.
+// Elements are left uninitialized if alloc.construct() is trivial.
 // All member functions have a strong exception guarantee if alloc.destroy() is noexcept.
 // 
 // https://en.cppreference.com/w/cpp/named_req/Allocator
@@ -48,11 +48,11 @@ public:
     using const_iterator = const_pointer;
 
 public:
-    buffer(std::size_t init_capacity,
+    buffer(std::size_t capacity,
         const Allocator& alloc = Allocator()
     ) :
         Allocholder(iutil::in_place, alloc),
-        m_size(iutil::recommend_allocn_size<T>(this->alloc(), init_capacity)), 
+        m_size(iutil::align_allocn_size<T>(this->alloc(), capacity)), 
         m_bufp(iutil::alloc_new(this->alloc(), m_size))
     {}
 
@@ -123,12 +123,12 @@ public:
 
     inline std::size_t capacity(void) const noexcept { return m_size; }
 
-    inline void reserve(std::size_t atleast_cap)
+    inline void reserve(std::size_t new_cap)
     {
-        if (atleast_cap <= capacity())
+        if (new_cap <= capacity())
             return;
 
-        grow_and_copy(this->alloc(), atleast_cap, m_bufp, m_size);
+        grow_and_copy(this->alloc(), new_cap, m_bufp, m_size);
     }    
 
     inline iterator begin(void) noexcept { return m_bufp; }
@@ -182,7 +182,7 @@ private:
 
     inline void grow_and_copy(Allocator& alloc, std::size_t atleast_cap, const_pointer src, std::size_t len)
     {
-        auto new_cap = iutil::recommend_vector_growth<T>(alloc, m_size, atleast_cap);
+        auto new_cap = iutil::vector_allocn_size<T>(alloc, m_size, atleast_cap);
         reallocate_and_copy(alloc, new_cap, src, len);
     }
 
@@ -367,7 +367,7 @@ struct strdata<T, Allocator, false> : strdata_base<T, Allocator>
 
 // buffer<> with short-string optimization.
 //
-// Elements are default-initialized only if alloc.construct() is non-trivial.
+// Elements are left uninitialized if alloc.construct() is trivial.
 // All member functions have a strong exception guarantee if alloc.destroy() is noexcept.
 //
 template <typename T, 
@@ -388,22 +388,23 @@ public:
     using const_pointer = typename Altraits::const_pointer;
     using iterator = T*;
     using const_iterator = const T*;
+    using allocator_type = Allocator;
 
 public:
-    // Initial capacity should include space for null-terminator (if any).
-    strbuffer(std::size_t init_capacity,
+    // Capacity should include space for null-terminator (if any).
+    strbuffer(std::size_t capacity,
         const Allocator& alloc = Allocator()
     ) :
         Allocholder(iutil::in_place, alloc)
     {
-        bool sso = init_capacity <= Strdata::SHORT_STRING_CAP;
+        bool sso = capacity <= Strdata::SHORT_STRING_CAP;
         this->m_str.set_is_long(!sso);
 
         if (sso) 
             this->m_str.short_len(0);
         else
         {
-            auto new_cap = iutil::recommend_allocn_size<T>(this->alloc(), init_capacity);
+            auto new_cap = iutil::align_allocn_size<T>(this->alloc(), capacity);
             this->m_str.long_bufp(iutil::alloc_new(this->alloc(), new_cap));
             this->m_str.long_cap(new_cap);
             this->m_str.long_len(0);
@@ -479,6 +480,8 @@ public:
         return *this;
     }
 
+    inline allocator_type get_allocator(void) const { return this->alloc(); }
+
     inline std::size_t length(void) const noexcept 
     { return this->m_str.is_long() ? this->m_str.long_len() : this->m_str.short_len(); }
 
@@ -494,15 +497,15 @@ public:
     { return this->m_str.is_long() ? this->m_str.long_cap() : Strdata::SHORT_STRING_CAP; }
 
     // Guaranteed to be at least 1.
-    constexpr std::size_t min_capacity(void) const noexcept { return Strdata::SHORT_STRING_CAP; }
+    static constexpr std::size_t min_capacity(void) noexcept { return Strdata::SHORT_STRING_CAP; }
 
-    // New capacity should include space for null-terminator (if any).
-    inline void reserve(std::size_t atleast_cap)
+    // Capacity should include space for null-terminator (if any).
+    inline void reserve(std::size_t rqd_cap)
     {
-        if (atleast_cap <= capacity())
+        if (rqd_cap <= capacity())
             return;
 
-        grow(atleast_cap);
+        grow(rqd_cap);
     }
 
     // Mark the next count chars as under use.
@@ -560,12 +563,11 @@ public:
 
 private:
     template <bool IsShort>
-    inline void grow_and_copy(Allocator& alloc, std::size_t atleast_cap, const T* src, std::size_t len)
+    inline void grow_and_copy(Allocator& alloc, std::size_t rqd_cap, const T* src, std::size_t len)
     {
-        assert(atleast_cap >= len && atleast_cap > capacity());
+        assert(rqd_cap >= len && rqd_cap > capacity());
 
-        auto new_cap = iutil::recommend_vector_growth<T>(alloc, capacity(), atleast_cap);
-
+        auto new_cap = iutil::vector_allocn_size<T>(alloc, capacity(), rqd_cap);
         pointer bufp = iutil::alloc_new(alloc, new_cap);
         iutil::scope_guard<Allocator> guard(alloc, bufp, new_cap);
 
@@ -590,13 +592,13 @@ private:
             iutil::to_address(rhs.m_str.long_bufp()), rhs.m_str.long_len());
     }
 
-    inline void grow(std::size_t atleast_cap)
+    inline void grow(std::size_t rqd_cap)
     {
         if (!this->m_str.is_long())
-            grow_and_copy<true>(this->alloc(), atleast_cap, 
+            grow_and_copy<true>(this->alloc(), rqd_cap, 
                 this->m_str.short_bufp(), this->m_str.short_len());
         else
-            grow_and_copy<false>(this->alloc(), atleast_cap, 
+            grow_and_copy<false>(this->alloc(), rqd_cap, 
                 iutil::to_address(this->m_str.long_bufp()), this->m_str.long_len());
     }
 

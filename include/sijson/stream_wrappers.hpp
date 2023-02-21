@@ -29,7 +29,7 @@ private:
 
 public:
     using char_type = typename StdIstream::char_type;
-    using streamsize_type = iutil::make_unsigned_t<std::streamoff>;
+    using size_type = iutil::make_unsigned_t<std::streamoff>;
     using underlying_stream_type = StdIstream;
 
 public:
@@ -51,7 +51,7 @@ public:
     inline char_type take(void) { return Traits::to_char_type(m_stream.get()); }
 
     // Get input position.
-    inline streamsize_type inpos(void) 
+    inline size_type ipos(void) 
     {
         // fpos<> is only convertible to std::streamoff
         return (std::streamoff)m_stream.tellg(); 
@@ -102,7 +102,7 @@ public:
     // Put characters from an array.
     inline void put_n(const char_type* str, std::size_t count)
     {
-#if SIJSON_PREFER_LOGIC_ERRORS
+#if SIJSON_LOGIC_ERRORS
         if (count > std::numeric_limits<std::streamsize>::max())
             throw std::length_error("Size larger than std::streamsize.");
 #else
@@ -115,7 +115,7 @@ public:
     inline void flush(void) { m_stream.flush(); }
 
     // Get output position.
-    inline std::size_t outpos(void) { return m_stream.tellp(); }
+    inline std::size_t opos(void) { return m_stream.tellp(); }
 
 private:
     StdOstream& m_stream;
@@ -123,13 +123,12 @@ private:
 
 
 template <typename T>
-struct istream_traits
+struct input_traits
 {
-    // True if T inherits from std::basic_istream.
-    static constexpr bool is_wrapped = iutil::inherits_std_basic_istream<T>::value;
+    static constexpr bool requires_wrapper = iutil::inherits_std_basic_istream<T>::value;
 
     using type = T;
-    // std_istream_wrapper<T> if T inherits from std::basic_istream, else U.
+    // Wrapper type if T requires wrapper, else U.
     template <typename U>
     using wrapper_type_or = typename std::conditional<
         iutil::inherits_std_basic_istream<T>::value, std_istream_wrapper<T>, U>::type;
@@ -138,11 +137,10 @@ struct istream_traits
 template <typename T>
 struct ostream_traits
 {
-    // True if T inherits from std::basic_ostream.
-    static constexpr bool is_wrapped = iutil::inherits_std_basic_ostream<T>::value;
+    static constexpr bool requires_wrapper = iutil::inherits_std_basic_ostream<T>::value;
 
     using type = T;
-    // std_ostream_wrapper<T> if T inherits from std::basic_ostream, else U.
+    // Wrapper type if T requires wrapper, else U.
     template <typename U>
     using wrapper_type_or = typename std::conditional<
         iutil::inherits_std_basic_ostream<T>::value, std_ostream_wrapper<T>, U>::type;
@@ -150,10 +148,10 @@ struct ostream_traits
 
 
 template <typename T>
-using wrap_if_not_sijson_istream_t = typename istream_traits<T>::template wrapper_type_or<T&>;
+using to_sijson_input_t = typename input_traits<T>::template wrapper_type_or<T&>;
 
 template <typename T>
-using wrap_if_not_sijson_ostream_t = typename ostream_traits<T>::template wrapper_type_or<T&>;
+using to_sijson_output_t = typename ostream_traits<T>::template wrapper_type_or<T&>;
 
 }
 #endif

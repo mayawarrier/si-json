@@ -87,7 +87,7 @@ public:
     {
         if (value)
         {
-            istrstream is(value); // todo
+            in_str is(value); // todo
             write_string_from(is);
         }
         else write_null();
@@ -98,7 +98,7 @@ public:
     {
         if (value)
         {
-            istrstream is(value, length);
+            in_str is(value, length);
             write_string_from(is);
         }
         else write_null();
@@ -108,7 +108,7 @@ public:
     template <typename ...Ts>
     inline void write_string(const std::basic_string<char, Ts...>& value)
     {
-        istrstream is(value.c_str(), value.length());
+        in_str is(value.c_str(), value.length());
         write_string_from(is);
     }
 
@@ -128,7 +128,7 @@ public:
 
     inline void write_whitespace(std::size_t num_spaces)
     {
-        m_stream.put(0x20, num_spaces);
+        m_stream.put_f(0x20, num_spaces);
     }
 
     // Get stream.
@@ -249,14 +249,14 @@ public:
     template <typename Value>
     inline void write_value(const Value& value)
     {
-        write_value_impl<iutil::decay_array_to_constptr_t<Value>>(value);
+        write_value_impl<iutil::decay_t<const Value&>>(value);
     }
 
     // Write object key-value pair.
     template <typename Value>
     inline void write_key_value(const char* key, const Value& value)
     {
-        write_key_value_impl<iutil::decay_array_to_constptr_t<Value>>(
+        write_key_value_impl<iutil::decay_t<const Value&>>(
             [&] { m_rw.write_string(key); }, !key, value);
     }
 
@@ -264,7 +264,7 @@ public:
     template <typename Value>
     inline void write_key_value(const char* key, std::size_t key_length, const Value& value)
     {
-        write_key_value_impl<iutil::decay_array_to_constptr_t<Value>>(
+        write_key_value_impl<iutil::decay_t<const Value&>>(
             [&] { m_rw.write_string(key, key_length); }, !key, value);
     }
 
@@ -293,7 +293,7 @@ public:
     inline void write_whitespace(std::size_t num_spaces) { m_rw.write_whitespace(num_spaces); }
 
     // Get stream position.
-    inline std::size_t outpos(void) { return m_rw.stream().outpos(); }
+    inline std::size_t opos(void) { return m_rw.stream().opos(); }
 
 private:
     inline void write_separator(void);
@@ -355,7 +355,7 @@ template <encoding Encoding, typename Ostream>
 template <typename FloatT>
 inline void raw_writer<Encoding, Ostream>::write_floating_impl(JsonOstream& stream, FloatT value)
 {
-#if SIJSON_PREFER_LOGIC_ERRORS
+#if SIJSON_LOGIC_ERRORS
     if (!std::isfinite(value))
         throw std::invalid_argument("Value is NAN or infinity.");
 #else
@@ -385,14 +385,19 @@ inline void raw_writer<Encoding, Ostream>::write_number_impl(JsonOstream& stream
         case number::TYPE_double:
             write_floating_impl(stream, value.get_unsafe<double>());
             break;
-        case number::TYPE_intmax_t:
+        case number::TYPE_intmax:
             write_int_impl(stream, value.get_unsafe<std::intmax_t>());
             break;
-        case number::TYPE_uintmax_t:
+        case number::TYPE_uintmax:
             write_uint_impl(stream, value.get_unsafe<std::uintmax_t>());
             break;
+
         default:
-            assert(false); break;
+#ifdef __cpp_lib_unreachable
+            std::unreachable();
+#else
+            break;
+#endif
     }
 }
 
@@ -422,6 +427,8 @@ inline void raw_writer<Encoding, Ostream>::write_string_from(Istream& is, bool q
             case 0x22: m_stream.put_n(dquote_escape, 2); break; // '"'
             case 0x5c: m_stream.put_n(bslash_escape, 2); break; // '\'
 
+            // todo: escape control characters as unicode escape sequences
+
             default: m_stream.put(c); break;
         }
     }
@@ -450,7 +457,7 @@ template <typename Ostream, typename Allocator>
 template <typename Func>
 inline void ascii_writer<Ostream, Allocator>::write_key_impl(Func do_write, bool is_null)
 {
-#if SIJSON_PREFER_LOGIC_ERRORS
+#if SIJSON_LOGIC_ERRORS
     if (is_null) 
         throw std::invalid_argument("Key is null.");
 #else
@@ -484,7 +491,7 @@ template <typename Value, typename Func>
 inline void ascii_writer<Ostream, Allocator>::write_key_value_impl(
     Func do_write_key, bool is_key_null, const Value& value)
 {
-#if SIJSON_PREFER_LOGIC_ERRORS
+#if SIJSON_LOGIC_ERRORS
     if (is_key_null)
         throw std::invalid_argument("Key is null.");
 #else

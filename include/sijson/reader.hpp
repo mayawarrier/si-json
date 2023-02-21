@@ -28,7 +28,8 @@ namespace sijson {
 // ASCII JSON reader.
 template <typename Istream,
     // Allocator type used for internal purposes/book-keeping.
-    typename Allocator = std::allocator<iutil::placeholder>>
+    typename Allocator = std::allocator<iutil::placeholder>
+>
 class ascii_reader : public internal::rw_base<Allocator>
 {
 public:
@@ -166,10 +167,10 @@ public:
     }
 
     // Get stream position.
-    inline std::size_t inpos(void) { return m_rr.stream().inpos(); }
+    inline std::size_t ipos(void) { return m_rr.in().ipos(); }
 
     // True if reached end of stream.
-    inline bool end(void) { return m_rr.stream().end(); }
+    inline bool end(void) { return m_rr.in().end(); }
 
 private:
     inline void read_separator(void);
@@ -178,7 +179,7 @@ private:
     inline bool read_key_impl(const char* str, IsEndpFunc is_endp, std::size_t& out_pos);
 
 private:
-    raw_reader<Istream> m_rr;
+    simple_reader<Istream> m_rr;
 };
 
 
@@ -266,7 +267,8 @@ inline bool ascii_reader<Istream, Allocator>::read_key_impl(const char* str, IsE
     this->template assert_rule<DOCNODE_key>();
 
     read_separator();
-    iutil::skip_ws(m_rr.stream(), out_pos);
+    m_rr.skip_ws();
+    out_pos = m_rr.in().ipos();
 
     internal::streq_ostream<std::char_traits<char>, IsEndpFunc> os(str, is_endp);
     m_rr.read_string_into(os);
@@ -285,7 +287,7 @@ inline void ascii_reader<Istream, Allocator>::read_key(const std::basic_string<c
 
     std::size_t startpos;
     if (!read_key_impl(expected_key.data(), is_endp, startpos))
-        throw iutil::parse_error_exp(startpos, "string \"" + std::string(expected_key.data(), expected_key.length()) + "\"");
+        throw parse_error(startpos, "expected string \"" + std::string(expected_key.data(), expected_key.length()) + "\"");
 }
 
 template <typename Istream, typename Allocator>
@@ -295,7 +297,7 @@ inline void ascii_reader<Istream, Allocator>::read_key(const char* expected_key)
 
     std::size_t startpos;
     if (!read_key_impl(expected_key, is_endp, startpos))
-        throw iutil::parse_error_exp(startpos, "string \"" + std::string(expected_key) + "\"");
+        throw parse_error(startpos, "expected string \"" + std::string(expected_key) + "\"");
 }
 
 template <typename Istream, typename Allocator>
@@ -305,7 +307,7 @@ inline void ascii_reader<Istream, Allocator>::read_key(const char* expected_key,
 
     std::size_t startpos;
     if (!read_key_impl(expected_key, is_endp, startpos))
-        throw iutil::parse_error_exp(startpos, "string \"" + std::string(expected_key, length) + "\"");
+        throw parse_error(startpos, "expected string \"" + std::string(expected_key, length) + "\"");
 }
 
 template <typename Istream, typename Allocator>

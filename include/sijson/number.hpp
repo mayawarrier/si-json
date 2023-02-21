@@ -3,7 +3,8 @@
 #define SIJSON_NUMBER_HPP
 
 #include <cstdint>
-#include <cassert>
+#include <utility>
+#include <string>
 #include <stdexcept>
 
 #include "internal/util.hpp"
@@ -14,23 +15,25 @@ namespace sijson {
 class number final
 {
 public:
+    using largest_fp_type = double;
+
     enum type_t : int
     {
         TYPE_float,
         TYPE_double,
-        TYPE_intmax_t,
-        TYPE_uintmax_t
+        TYPE_intmax,
+        TYPE_uintmax
     };
 
 public:
     template <typename T,
         iutil::enable_if_t<iutil::is_nb_signed_integral<T>::value, int> = 0>
-    number(T value) noexcept : m_intg(value), m_type(TYPE_intmax_t)
+    number(T value) noexcept : m_intg(value), m_type(TYPE_intmax)
     {}
 
     template <typename T, 
         iutil::enable_if_t<iutil::is_nb_unsigned_integral<T>::value, int> = 0>
-    number(T value) noexcept : m_uintg(value), m_type(TYPE_uintmax_t)
+    number(T value) noexcept : m_uintg(value), m_type(TYPE_uintmax)
     {}
 
     number(float value) noexcept : m_flt(value), m_type(TYPE_float) {}
@@ -48,16 +51,16 @@ public:
     inline type_t type(void) const noexcept { return m_type; }
 
     // Get value.
-    // Throws if active value is not T.
+    // Throws if active type is not T.
     template <typename T>
     inline T get(void) const;
 
-    // Get value, without checking if active value is T.
+    // Get value without checking active type.
     // If not T, calling this is undefined behavior.
     template <typename T>
     inline T get_unsafe(void) const noexcept;
 
-    // Gets value if active value is T, else returns nullptr.
+    // Gets value if active type is T, else returns nullptr.
     template <typename T>
     inline const T* get_if(void) const noexcept;
 
@@ -98,20 +101,20 @@ template <> struct number::typehelper<double>
 };
 template <> struct number::typehelper<std::intmax_t>
 {
-    static constexpr int typeidx = TYPE_intmax_t;
+    static constexpr int typeidx = TYPE_intmax;
 
     static inline std::intmax_t get(const number& n) noexcept { return n.m_intg; }
     static inline const std::intmax_t* cptr(const number& n) noexcept { return &n.m_intg; }
 };
 template <> struct number::typehelper<std::uintmax_t>
 {
-    static constexpr int typeidx = TYPE_uintmax_t;
+    static constexpr int typeidx = TYPE_uintmax;
 
     static inline std::uintmax_t get(const number& n) noexcept { return n.m_uintg; }
     static inline const std::uintmax_t* cptr(const number& n) noexcept { return &n.m_uintg; }
 };
 
-// Gets value if active value is T, else returns nullptr.
+// Gets value if active type is T, else returns nullptr.
 template <typename T>
 inline const T* number::get_if(void) const noexcept
 {
@@ -119,7 +122,7 @@ inline const T* number::get_if(void) const noexcept
         typehelper<T>::cptr() : nullptr;
 }
 
-// Get value, without checking if active value is T.
+// Get value without checking active type.
 // If not T, calling this is undefined behavior.
 template <typename T>
 inline T number::get_unsafe(void) const noexcept
@@ -128,17 +131,17 @@ inline T number::get_unsafe(void) const noexcept
 }
 
 // Get value.
-// Throws if active value is not T.
+// Throws if active type is not T.
 template <typename T>
 inline T number::get(void) const
 {
     if (typehelper<T>::typeidx != m_type)
-        throw std::logic_error("Active value is not T");
+        throw std::logic_error(std::string(__func__) + ": Active type is not T.");
 
     return typehelper<T>::get(*this);
 }
 
-// Get active value, cast to type T.
+// Get active value, cast to T.
 template <typename T>
 inline T number::as(void) const noexcept
 {
@@ -146,9 +149,15 @@ inline T number::as(void) const noexcept
     {
         case TYPE_float: return (T)m_flt;
         case TYPE_double: return (T)m_dbl;
-        case TYPE_intmax_t: return (T)m_intg;
-        case TYPE_uintmax_t: return (T)m_uintg;
-        default: assert(false); return {};
+        case TYPE_intmax: return (T)m_intg;
+        case TYPE_uintmax: return (T)m_uintg;
+        default:
+#ifdef __cpp_lib_unreachable
+            std::unreachable();
+#else
+            SIJSON_ASSERT(false);
+            return {};
+#endif
     }
 }
 

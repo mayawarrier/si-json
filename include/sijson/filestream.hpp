@@ -14,7 +14,7 @@
 
 #include "core.hpp"
 #include "internal/util.hpp"
-#include "internal/impl_file.hpp"
+#include "internal/file.hpp"
 #include "internal/buffers.hpp"
 
 namespace sijson {
@@ -24,7 +24,8 @@ class ifilestream
 {
 public:
     using char_type = char;
-    using streamsize_type = std::size_t;
+    using size_type = std::size_t;
+    using input_type = tag::io_buffered;
 
 private:
     ifilestream(internal::file&& file, std::size_t bufsize) :
@@ -35,7 +36,7 @@ private:
         m_buf_eof(false),
         m_posn(0)
     {
-#if SIJSON_PREFER_LOGIC_ERRORS
+#if SIJSON_LOGIC_ERRORS
         if (bufsize == 0)
             throw std::invalid_argument(std::string(__func__) + ": Buffer size is 0.");
 #else
@@ -43,9 +44,6 @@ private:
 #endif
         if (!m_file.is_open())
             throw std::runtime_error("Could not open file.");
-
-        // disable std buffer
-        m_file.set_unbuffered();
 
         // set EOF
         refill_buf(); 
@@ -91,9 +89,9 @@ public:
     }
 
     // Get position.
-    inline streamsize_type inpos(void) const noexcept { return m_posn; }
+    inline size_type ipos(void) const noexcept { return m_posn; }
 
-    // True if the last operation completed by reaching the end of the stream.
+    // True if stream has run out of characters.
     inline bool end(void) const noexcept
     {
         return m_buf_eof && m_buf_cur == m_buf_last;
@@ -112,6 +110,8 @@ public:
         }
         m_posn = 0;       
     }
+
+    //inline const char_type* ibufbeg()
 
     // Close file. Throws on failure.
     // Whether or not the operation succeeds,
@@ -163,7 +163,7 @@ private:
     char* m_buf_cur;
     char* m_buf_last; // always >= m_buf_cur
     bool m_buf_eof;
-    streamsize_type m_posn;
+    size_type m_posn;
 };
 
 
@@ -172,7 +172,8 @@ class ofilestream
 {
 public:
     using char_type = char;
-    using streamsize_type = std::size_t;
+    using size_type = std::size_t;
+    using output_kind = tag::io_buffered;
 
 private:
     ofilestream(internal::file&& file, std::size_t bufsize) :
@@ -181,7 +182,7 @@ private:
         m_buf_cur(m_buf.pbegin()),
         m_posn(0)
     {
-#if SIJSON_PREFER_LOGIC_ERRORS
+#if SIJSON_LOGIC_ERRORS
         if (bufsize == 0)
             throw std::invalid_argument(std::string(__func__) + ": Buffer size is 0.");
 #else
@@ -189,9 +190,6 @@ private:
 #endif
         if (!m_file.is_open())
             throw std::runtime_error("Could not open file.");
-
-        // disable std buffer
-        m_file.set_unbuffered();
     }
 
 public:
@@ -234,7 +232,7 @@ public:
             m_buf_cur += count;
             m_posn += count;
         }
-        else repeat_write(c, count);
+        else fill_write(c, count);
     }
 
     // Put characters from an array.
@@ -257,7 +255,7 @@ public:
     }
 
     // Get position.
-    inline streamsize_type outpos(void) const noexcept { return m_posn; }
+    inline size_type opos(void) const noexcept { return m_posn; }
 
     // Flush stream and close file. Throws on failure.
     // Whether or not the operation succeeds,
@@ -305,11 +303,11 @@ private:
     }
 
     // pos() is unchanged until all bytes are written.
-    inline void repeat_write(char c, std::size_t count)
+    inline void fill_write(char c, std::size_t count)
     {
-        auto rem = count;
-        assert(rem > buf_avail());
+        SIJSON_ASSERT(count > buf_avail());
 
+        auto rem = count;
         while (rem > 0)
         {
             if (buf_avail() == 0)
@@ -327,9 +325,10 @@ private:
 
     // pos() is unchanged until all bytes are written.
     inline void bulk_write(const char* src, std::size_t count)
-    {
+    {       
+        SIJSON_ASSERT(count > buf_avail());
+
         auto rem = count;
-        assert(rem > buf_avail());
 
         // fill buffer first
         auto nbuf = buf_avail();
@@ -339,7 +338,7 @@ private:
 
         flush_buf();
 
-        // write largest multiple of buffer size directly
+        // write (multiple of buffer cap) bytes directly
         auto nfile = rem - rem % m_buf.capacity();
         if (nfile != 0)
         {
@@ -350,7 +349,6 @@ private:
         }
 
         // if any remains, buffer it
-        // (this is always less than capacity)
         if (rem != 0)
         {
             std::memcpy(m_buf_cur, src, rem);
@@ -364,7 +362,7 @@ private:
     internal::file m_file;
     internal::buffer<char> m_buf;
     char* m_buf_cur;
-    streamsize_type m_posn;
+    size_type m_posn;
 };
 
 }

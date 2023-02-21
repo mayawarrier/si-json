@@ -34,9 +34,9 @@ protected:
 
     static inline void assert_type(doc_node_type type, doc_node_type expected)
     {
-#if SIJSON_PREFER_LOGIC_ERRORS
+#if SIJSON_LOGIC_ERRORS
         if (type != expected)
-            throw std::logic_error(std::string("Expected parent node to be ") + doc_node_name(expected));
+            throw std::logic_error(std::string("Expected parent node to be ") + docnode_name(expected));
 #else
         assert(type == expected);
         (void)type;
@@ -48,7 +48,7 @@ protected:
         static constexpr std::bitset<NUM_DOCNODE_TYPES> EXP_before_value
         { 0x1 << DOCNODE_array | 0x1 << DOCNODE_key | 0x1 << DOCNODE_root };
 
-#if SIJSON_PREFER_LOGIC_ERRORS
+#if SIJSON_LOGIC_ERRORS
         if (!EXP_before_value[type])
             throw std::runtime_error("Expected parent node to be one of array, key, or root.");
 #else
