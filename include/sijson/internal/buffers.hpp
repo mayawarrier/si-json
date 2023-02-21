@@ -18,7 +18,6 @@
 #include "config.hpp"
 #include "core.hpp"
 #include "util.hpp"
-#include "memutil.hpp"
 
 
 namespace sijson {

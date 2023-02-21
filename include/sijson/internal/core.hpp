@@ -1,19 +1,20 @@
 // 
-// Definitions shared by internal/ and outside.
+// Common definitions (shared by internal/ and outside).
 // 
 
-#ifndef SIJSON_INTERNAL_COMMON_HPP
-#define SIJSON_INTERNAL_COMMON_HPP
+#ifndef SIJSON_INTERNAL_CORE_HPP
+#define SIJSON_INTERNAL_CORE_HPP
 
 #include <cstddef>
-#include <cassert>
+#include <cstdint>
 #include <ios>
 #include <utility>
+#include <string>
 #include <type_traits>
+#include <stdexcept>
 
 #include "config.hpp"
 #include "util.hpp"
-#include "util_memory.hpp"
 
 #if SIJSON_HAS_OPTIONAL
 #include <optional>
@@ -47,7 +48,7 @@ enum doc_node_type : unsigned
     NUM_DOCNODE_TYPES
 };
 
-inline const char* doc_node_name(doc_node_type type)
+inline const char* docnode_name(doc_node_type type)
 {
     switch (type)
     {
@@ -56,27 +57,67 @@ inline const char* doc_node_name(doc_node_type type)
         case DOCNODE_key: return "key";
         case DOCNODE_value: return "value";
         case DOCNODE_root: return "root";
-        default: assert(false); return nullptr;
+        default: return "Invalid DOCNODE";
     }
 }
+
+enum error : int
+{
+    ERROR_str_escape = -3,
+    ERROR_str_delim = -2,
+    ERROR_bad_rdflags = -1,
+    ERROR_none = 0
+};
+
+inline const char* get_error_msg(error e)
+{
+    switch (e)
+    {
+    case ERROR_str_escape: 
+        return "Invalid string escape.";
+    case ERROR_str_delim: 
+        return "String delimiter missing.";
+    case ERROR_bad_rdflags:
+        return "Invalid read flag(s).";
+    case ERROR_none: 
+        return "No error.";
+    default: 
+        return "Unknown error.";
+    }
+}
+
+template <typename OffT>
+inline std::runtime_error parse_error(OffT offset, const char* msg)
+{
+    return std::runtime_error("JSON parse error at offset " + std::to_string(offset) + ": " + msg);
+}
+template <typename OffT>
+inline std::runtime_error parse_error(OffT offset, const std::string& msg)
+{
+    return parse_error(offset, msg.c_str());
+}
+template <typename OffT>
+inline std::runtime_error parse_error(OffT offset, error err)
+{
+    return parse_error(offset, get_error_msg(err));
+}
+
 
 namespace tag
 {
 // Tag type: string stream should be null-terminated.
-struct null_terminated
-{
-    constexpr explicit null_terminated() = default;
-};
+struct null_terminated {};
 
-// Tag type: throw if an I/O operation may result in buffer overflow.
-struct throw_on_overflow
-{
-    constexpr explicit throw_on_overflow() = default;
-};
+// Tag type: throw if an I/O operation will result in buffer overflow.
+struct throw_on_overflow {};
+
+struct io_contiguous {};
+struct io_buffered {};
+struct io_basic {};
 }
 
 
-// Describes a continguous section of memory.
+// Describes a contiguous section of memory.
 template <typename T>
 struct memspan
 {
@@ -105,20 +146,28 @@ struct memspan
 };
 
 
-// Span of the stream's remaining input data i.e. { inpcur(), inpend() }.
+// Span of the stream's remaining input data i.e. { in_curp(), in_endp() }.
 template <typename ContiguousIstream>
 inline memspan<const typename ContiguousIstream::char_type> indata(const ContiguousIstream& is)
 {
-    return { is.inpcur(), is.inpend() };
+    return { is.ipcur(), is.ipend() };
 }
-// Span of the stream's entire input data i.e. { inpbegin(), inpend() }.
+
+// Span of the stream's entire input data i.e. { in_begp(), in_endp() }.
 template <typename ContiguousIstream>
 inline memspan<const typename ContiguousIstream::char_type> inarea(const ContiguousIstream& is)
 {
-    return { is.inpbegin(), is.inpend() };
+    return { is.ipbeg(), is.ipend() };
 }
 
-// Span of the data written to the stream i.e. { outpbegin(), outpcur() }.
+// Num input chars remaining.
+template <typename ContiguousInput>
+inline typename ContiguousInput::size_type inrem(const ContiguousInput& is)
+{
+    return is.ipend() - is.ipcur();
+}
+
+// Span of the stream's output data { opbeg(), opcur() }.
 // Span may be invalidated if a non-const reference to
 // the stream is passed to a function or if any non-const
 // member functions are called on the stream.
@@ -126,9 +175,10 @@ template <typename ContiguousOstream>
 inline memspan<iutil::add_const_if_t<typename ContiguousOstream::char_type, std::is_const<ContiguousOstream>::value>>
 outdata(ContiguousOstream& os)
 {
-    return { os.outpbegin(), os.outpcur() };
+    return { os.opbeg(), os.opcur() };
 }
-// Span of the memory reserved by the stream i.e. { outpbegin(), outpend() }.
+
+// Span of the stream's output area { opbeg(), opend() }.
 // Span may be invalidated if a non-const reference to
 // the stream is passed to a function or if any non-const
 // member functions are called on the stream.
@@ -136,8 +186,157 @@ template <typename ContiguousOstream>
 inline memspan<iutil::add_const_if_t<typename ContiguousOstream::char_type, std::is_const<ContiguousOstream>::value>>
 outarea(ContiguousOstream& os)
 {
-    return { os.outpbegin(), os.outpend() };
+    return { os.opbeg(), os.opend() };
 }
+
+
+
+// Holds an arbitrary numerical value.
+class number final
+{
+public:
+    using largest_fp_type = double;
+
+    enum etype : int
+    {
+        TYPE_float,
+        TYPE_double,
+        TYPE_intmax,
+        TYPE_uintmax
+    };
+
+public:
+    template <typename T,
+        iutil::enable_if_t<iutil::is_nb_signed_integral<T>::value, int> = 0>
+    number(T value) noexcept : m_intg(value), m_type(TYPE_intmax)
+    {}
+
+    template <typename T,
+        iutil::enable_if_t<iutil::is_nb_unsigned_integral<T>::value, int> = 0>
+    number(T value) noexcept : m_uintg(value), m_type(TYPE_uintmax)
+    {}
+
+    number(float value) noexcept : m_flt(value), m_type(TYPE_float) {}
+    number(double value) noexcept : m_dbl(value), m_type(TYPE_double) {}
+
+    number(void) noexcept : m_dbl(0), m_type(TYPE_double) {} // largest range
+
+    number(number&&) noexcept = default;
+    number(const number&) noexcept = default;
+
+    number& operator=(number&&) noexcept = default;
+    number& operator=(const number&) noexcept = default;
+
+    // Get type.
+    inline etype type(void) const noexcept { return m_type; }
+
+    // Get value.
+    // Throws if active type is not T.
+    template <typename T>
+    inline T get(void) const;
+
+    // Get value without checking active type.
+    // If not T, calling this is undefined behavior.
+    template <typename T>
+    inline T get_unsafe(void) const noexcept;
+
+    // Gets value if active type is T, else returns nullptr.
+    template <typename T>
+    inline const T* get_if(void) const noexcept;
+
+    // Get active value, cast to T.
+    template <typename T>
+    inline T as(void) const noexcept
+    {
+        switch (m_type)
+        {
+        case TYPE_float: return (T)m_flt;
+        case TYPE_double: return (T)m_dbl;
+        case TYPE_intmax: return (T)m_intg;
+        case TYPE_uintmax: return (T)m_uintg;
+        default:
+#ifdef __cpp_lib_unreachable
+            std::unreachable();
+#else
+            SIJSON_ASSERT(false);
+            return {};
+#endif
+        }
+    }
+
+private:
+    union
+    {
+        float m_flt;
+        double m_dbl;
+        std::intmax_t m_intg;
+        std::uintmax_t m_uintg;
+    };
+    etype m_type;
+
+    template <typename T>
+    struct typehelper
+    {
+        static constexpr int typeidx = -1;
+    };
+};
+
+template <> struct number::typehelper<float>
+{
+    static constexpr int typeidx = TYPE_float;
+
+    static inline float get(const number& n) noexcept { return n.m_flt; }
+    static inline const float* cptr(const number& n) noexcept { return &n.m_flt; }
+};
+template <> struct number::typehelper<double>
+{
+    static constexpr int typeidx = TYPE_double;
+
+    static inline double get(const number& n) noexcept { return n.m_dbl; }
+    static inline const double* cptr(const number& n) noexcept { return &n.m_dbl; }
+};
+template <> struct number::typehelper<std::intmax_t>
+{
+    static constexpr int typeidx = TYPE_intmax;
+
+    static inline std::intmax_t get(const number& n) noexcept { return n.m_intg; }
+    static inline const std::intmax_t* cptr(const number& n) noexcept { return &n.m_intg; }
+};
+template <> struct number::typehelper<std::uintmax_t>
+{
+    static constexpr int typeidx = TYPE_uintmax;
+
+    static inline std::uintmax_t get(const number& n) noexcept { return n.m_uintg; }
+    static inline const std::uintmax_t* cptr(const number& n) noexcept { return &n.m_uintg; }
+};
+
+// Gets value if active type is T, else returns nullptr.
+template <typename T>
+inline const T* number::get_if(void) const noexcept
+{
+    return typehelper<T>::typeidx == m_type ?
+        typehelper<T>::cptr() : nullptr;
+}
+
+// Get value without checking active type.
+// If not T, calling this is undefined behavior.
+template <typename T>
+inline T number::get_unsafe(void) const noexcept
+{
+    return typehelper<T>::get(*this);
+}
+
+// Get value.
+// Throws if active type is not T.
+template <typename T>
+inline T number::get(void) const
+{
+    if (typehelper<T>::typeidx != m_type)
+        throw std::logic_error(std::string(__func__) + ": Active type is not T.");
+
+    return typehelper<T>::get(*this);
+}
+
 
 
 #if SIJSON_HAS_OPTIONAL
@@ -320,6 +519,81 @@ template <> struct encoding_traits<ENCODING_utf32be> { using char_type = char32_
 //template <> struct encoded_char_traits<char8_t> { static constexpr encoding encoding = ENCODING_utf8; };
 //#endif
 
+}
+
+namespace sijson {
+namespace internal {
+
+// safer to use T and CharT to guarantee sfinae
+// https://cplusplus.github.io/CWG/issues/1558.html
+template <typename T, typename CharT>
+using check_io_typedefs = iutil::void_t<
+    iutil::enable_if_same_t<typename T::char_type, CharT>,
+    iutil::enable_if_t<iutil::is_nb_unsigned_integral<typename T::size_type>::value>>;
+
+
+template <typename, typename, typename = void>
+struct is_input : std::false_type {};
+
+template <typename T, typename CharT>
+struct is_input<T, CharT, iutil::void_t<
+    check_io_typedefs<T, CharT>, typename T::input_kind,
+    iutil::enable_if_same_t<decltype(std::declval<T>().peek()), CharT>,
+    iutil::enable_if_same_t<decltype(std::declval<T>().take()), CharT>,
+    iutil::enable_if_same_t<decltype(std::declval<T>().ipos()), typename T::size_type>,
+    iutil::enable_if_same_t<decltype(std::declval<T>().end()), bool>,
+    decltype(std::declval<T>().rewind())>> :
+std::true_type
+{};
+
+
+template <typename, typename, typename = void>
+struct is_output : std::false_type {};
+
+template <typename T, typename CharT>
+struct is_output<T, CharT, iutil::void_t<
+    check_io_typedefs<T, CharT>, typename T::output_kind,
+    decltype(std::declval<T>().put(std::declval<CharT>())),
+    decltype(std::declval<T>().put_f(std::declval<CharT>(), std::declval<typename T::size_type>())),
+    decltype(std::declval<T>().put_n(std::declval<const CharT*>(), std::declval<std::size_t>())),
+    iutil::enable_if_same_t<decltype(std::declval<T>().opos()), typename T::size_type>,
+    decltype(std::declval<T>().flush())>> :
+std::true_type
+{};
+
+
+template <typename, typename, typename = void>
+struct is_contiguous_input : std::false_type {};
+
+template <typename T, typename CharT>
+struct is_contiguous_input<T, CharT, iutil::void_t<
+    iutil::enable_if_t<is_input<T, CharT>::value>,
+    iutil::enable_if_same_t<decltype(std::declval<const T>().ipbeg()), const CharT*>,
+    iutil::enable_if_same_t<decltype(std::declval<const T>().ipend()), const CharT*>,
+    iutil::enable_if_same_t<decltype(std::declval<const T>().ipcur()), const CharT*>,
+    decltype(std::declval<T>().icommit(std::declval<typename T::size_type>()))>> :
+    std::true_type
+{};
+
+
+template <typename, typename, typename = void>
+struct is_contiguous_output : std::false_type {};
+
+template <typename T, typename CharT>
+struct is_contiguous_output<T, CharT, iutil::void_t<
+    iutil::enable_if_t<is_output<T, CharT>::value>,
+    decltype(std::declval<T>().reserve(std::declval<typename T::size_type>())),
+    iutil::enable_if_same_t<decltype(std::declval<T>().opbeg()), CharT*>,
+    iutil::enable_if_same_t<decltype(std::declval<T>().opend()), CharT*>,
+    iutil::enable_if_same_t<decltype(std::declval<T>().opcur()), CharT*>,
+    iutil::enable_if_same_t<decltype(std::declval<const T>().opbeg()), const CharT*>,
+    iutil::enable_if_same_t<decltype(std::declval<const T>().opend()), const CharT*>,
+    iutil::enable_if_same_t<decltype(std::declval<const T>().opcur()), const CharT*>,
+    decltype(std::declval<T>().ocommit(std::declval<typename T::size_type>()))>> :
+std::true_type
+{};
+
+}
 }
 
 #endif
