@@ -1,6 +1,6 @@
 
-#ifndef SIJSON_RAW_READER_HPP
-#define SIJSON_RAW_READER_HPP
+#ifndef SIJSON_SIMPLE_READER_HPP
+#define SIJSON_SIMPLE_READER_HPP
 
 #include <cstddef>
 #include <cstdint>
@@ -44,7 +44,7 @@ class simple_reader
 private:
     using InputTraits = input_traits<Input>;
     using SiInput = typename InputTraits::template wrapper_type_or<Input>;
-    using InputKind = typename Input::input_kind;
+    using InputKind = typename SiInput::input_kind;
     using InputSize = typename SiInput::size_type;
     using CharT = typename Input::char_type;
     using ChTraits = std::char_traits<CharT>;

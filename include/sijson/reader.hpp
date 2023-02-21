@@ -18,8 +18,8 @@
 
 #include "core.hpp"
 #include "io_string.hpp"
+#include "simple_reader.hpp"
 
-#include "raw_reader.hpp"
 
 namespace sijson {
 
