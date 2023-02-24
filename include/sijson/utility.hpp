@@ -60,7 +60,7 @@ inline DestString unescape_impl(Istream& is)
 
     basic_out_stdstr<char, Allocator> os;
     simple_reader<Istream> reader(is);
-    reader.read_string_into(os, RDFLAG_str_nodelim);
+    reader.read_string_to(os, RDFLAG_str_nodelim);
 
     return std::move(os).str();
 }
@@ -296,7 +296,7 @@ public:
                     }
                     w.write_whitespace(m_tab_size * (depth + 1));
 
-                    r.read_string_into(w.stream(), RDFLAG_str_copy);
+                    r.read_string_to(w.stream(), RDFLAG_str_copy);
                     r.read_key_separator();
                     w.write_key_separator();
                     w.stream().put(' ');
@@ -345,7 +345,7 @@ public:
                 break;
 
             case TOKEN_string:
-                r.read_string_into(w.stream(), RDFLAG_str_copy);
+                r.read_string_to(w.stream(), RDFLAG_str_copy);
                 break;
 
             case TOKEN_boolean:

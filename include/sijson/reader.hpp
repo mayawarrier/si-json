@@ -270,7 +270,7 @@ inline bool ascii_reader<Istream, Allocator>::read_key_impl(const char* str, IsE
     out_pos = m_rr.in().ipos();
 
     internal::streq_ostream<std::char_traits<char>, IsEndpFunc> os(str, is_endp);
-    m_rr.read_string_into(os);
+    m_rr.read_string_to(os);
 
     this->m_nodes.push({ DOCNODE_key });
     // don't end_child_node(), key-value pair is incomplete

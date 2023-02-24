@@ -49,12 +49,6 @@
 #define SIJSON_HAS_STRING_VIEW 0
 #endif
 
-#if SIJSON_HAS_INCLUDE(<optional>) && SIJSON_CPLUSPLUS >= 201703L
-#define SIJSON_HAS_OPTIONAL 1
-#else
-#define SIJSON_HAS_OPTIONAL 0
-#endif
-
 #if defined(__cpp_lib_byte) || SIJSON_CPLUSPLUS >= 201703L
 #define SIJSON_HAS_STDBYTE 1
 #else

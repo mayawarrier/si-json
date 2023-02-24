@@ -16,9 +16,6 @@
 #include "config.hpp"
 #include "util.hpp"
 
-#if SIJSON_HAS_OPTIONAL
-#include <optional>
-#endif
 
 namespace sijson {
 
@@ -207,19 +204,27 @@ public:
 
 public:
     template <typename T,
-        iutil::enable_if_t<iutil::is_nb_signed_integral<T>::value, int> = 0>
-    number(T value) noexcept : m_intg(value), m_type(TYPE_intmax)
+        iutil::enable_if_t<iutil::is_nb_signed_integral<T>::value> = 0>
+    number(T value) noexcept : 
+        m_intg(value), m_type(TYPE_intmax)
     {}
 
     template <typename T,
-        iutil::enable_if_t<iutil::is_nb_unsigned_integral<T>::value, int> = 0>
-    number(T value) noexcept : m_uintg(value), m_type(TYPE_uintmax)
+        iutil::enable_if_t<iutil::is_nb_unsigned_integral<T>::value> = 0>
+    number(T value) noexcept : 
+        m_uintg(value), m_type(TYPE_uintmax)
     {}
 
-    number(float value) noexcept : m_flt(value), m_type(TYPE_float) {}
-    number(double value) noexcept : m_dbl(value), m_type(TYPE_double) {}
+    number(float value) noexcept : 
+        m_flt(value), m_type(TYPE_float) 
+    {}
+    number(double value) noexcept : 
+        m_dbl(value), m_type(TYPE_double) 
+    {}
 
-    number(void) noexcept : m_dbl(0), m_type(TYPE_double) {} // largest range
+    number(void) noexcept : 
+        m_dbl(0), m_type(TYPE_double) // largest range
+    {} 
 
     number(number&&) noexcept = default;
     number(const number&) noexcept = default;
@@ -336,137 +341,6 @@ inline T number::get(void) const
 
     return typehelper<T>::get(*this);
 }
-
-
-
-#if SIJSON_HAS_OPTIONAL
-template <typename T>
-using optional = std::optional<T>;
-
-static constexpr std::nullopt_t nullopt = std::nullopt;
-#else
-
-namespace internal {
-
-struct nullopt_t
-{
-    constexpr explicit nullopt_t(int) {}
-};
-
-// Supports:
-// - conversion to bool, has_value()
-// - -> and * operators
-// - default ctor (has_value() == false)
-// - nullopt_t ctor
-// - forwarding ctor from value i.e. optional(U&&)
-// - copy/move ctors from optional of same type
-// - copy/move operator= from optional of same type
-template <typename T>
-class optional
-{
-public:
-    template <typename U = T, iutil::enable_if_t<
-        // prevent conflict with other ctors
-        !std::is_same<optional, iutil::remove_cvref_t<U>>::value> = 0>
-    optional(U&& value) :
-        m_has_value(true)
-    {
-        m_value.construct(std::forward<U>(value));
-    }
-
-    optional(void) :
-        m_has_value(false)
-    {}
-    optional(nullopt_t) :
-        m_has_value(false)
-    {}
-
-    optional(const optional& rhs) :
-        m_has_value(rhs.m_has_value)
-    {
-        if (rhs.m_has_value)
-            m_value.construct(rhs.m_value.get());
-    }
-
-    optional(optional&& rhs) :
-        m_has_value(rhs.m_has_value)
-    {
-        if (rhs.m_has_value)
-            m_value.construct(std::move(rhs.m_value.get()));
-    }
-
-    inline optional& operator=(const optional& rhs)
-    {
-        if (this != &rhs)
-        {
-            if (rhs.m_has_value)
-            {
-                if (!this->m_has_value)
-                {
-                    m_value.construct(rhs.m_value.get());
-                    this->m_has_value = true;
-                }
-                else m_value.get() = rhs.m_value.get();
-            }
-            else if (this->m_has_value)
-            {
-                m_value.destroy();
-                this->m_has_value = false;
-            }
-        }
-        return *this;
-    }
-
-    inline optional& operator=(optional&& rhs)
-    {
-        if (this != &rhs)
-        {
-            if (rhs.m_has_value)
-            {
-                if (!this->m_has_value)
-                {
-                    m_value.construct(std::move(rhs.m_value.get()));
-                    this->m_has_value = true;
-                }
-                else m_value.get() = std::move(rhs.m_value.get());
-            }
-            else if (this->m_has_value)
-            {
-                m_value.destroy();
-                this->m_has_value = false;
-            }
-        }
-        return *this;
-    }
-
-    inline bool has_value(void) const noexcept { return m_has_value; }
-    inline explicit operator bool() const noexcept { return m_has_value; }
-
-    inline T* operator->() noexcept { return m_value.ptr(); }
-    inline const T* operator->() const noexcept { return m_value.ptr(); }
-
-    inline T& operator*() & noexcept { return m_value.get(); }
-    inline const T& operator*() const& noexcept { return m_value.get(); }
-
-    inline T&& operator*() && noexcept { return std::move(m_value.get()); }
-    inline const T&& operator*() const&& noexcept { return std::move(m_value.get()); }
-
-    ~optional()
-    {
-        if (m_has_value)
-            m_value.destroy();
-    }
-private:
-    iutil::aligned_storage_for<T> m_value;
-    bool m_has_value;
-};
-}
-
-template <typename T>
-using optional = internal::optional<T>;
-
-static constexpr internal::nullopt_t nullopt{ 0 };
-#endif
 
 
 enum endian

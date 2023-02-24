@@ -35,8 +35,9 @@ enum readflag : unsigned
 
 //
 // A simple (low-level) JSON reader.
+// 
 // Does not maintain any internal state
-// other than the input object it holds.
+// other than the input object.
 //
 template <typename Input>
 class simple_reader
@@ -223,7 +224,7 @@ public:
 
         skip_ws();
         error e = do_readstr(m_is, os);
-        if (e) throw parse_error(m_is.ipos(), get_error_msg(e));
+        if (e) throw parse_error(m_is.ipos(), e);
 
         return std::move(os).str();
     }
@@ -235,7 +236,7 @@ public:
     // - RDFLAG_str_nodelim: no quote delimiters. read input till end.
     //
     template <typename Output>
-    inline error try_read_string_into(Output& out, unsigned flags = RDFLAG_none)
+    inline error try_read_string_to(Output& out, unsigned flags = RDFLAG_none)
     {
         static_assert(std::is_same<typename Output::char_type, CharT>::value,
             "Output must have same char_type as input.");
@@ -269,10 +270,10 @@ public:
     // - RDFLAG_str_nodelim: no quote delimiters. read input till end.
     //
     template <typename Output>
-    inline void read_string_into(Output& out, unsigned flags = RDFLAG_none)
+    inline void read_string_to(Output& out, unsigned flags = RDFLAG_none)
     {
-        error e = try_read_string_into(out, flags);
-        if (e) throw parse_error(m_is.ipos(), get_error_msg(e));
+        error e = try_read_string_to(out, flags);
+        if (e) throw parse_error(m_is.ipos(), e);
     }
 
     // Read value.
@@ -297,9 +298,10 @@ private:
     {
         std::string res;
         if (c <= static_cast<CharT>(127))
-            res += "expected '" + (char)c + '\'';
+            res.assign("expected '" + (char)c + '\'');
         else
-            res += "expected char " + std::to_string(iutil::make_unsigned_t<CharT>(c));
+            res.assign("expected char " + 
+                std::to_string(iutil::make_unsigned_t<CharT>(c)));
         return res;
     }
 

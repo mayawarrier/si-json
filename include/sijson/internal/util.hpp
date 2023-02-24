@@ -146,6 +146,7 @@ struct in_place_t
 };
 static constexpr in_place_t in_place{};
 
+
 // Workaround for std::allocator<void> deprecation warnings 
 // even though it only exists as a placeholder for rebind
 struct placeholder {};
@@ -160,6 +161,10 @@ template <typename ...TemplArgs, template <typename...> class Templ>
 struct is_instance_of<Templ<TemplArgs...>, Templ> : std::true_type {};
 
 
+template <typename T, typename ...Ts>
+using is_one_of = iutil::disjunction<std::is_same<T, Ts>...>;
+
+
 template <typename T, bool Enable>
 struct add_const_if { using type = T; };
 
@@ -170,12 +175,22 @@ template <typename T, bool Enable>
 using add_const_if_t = typename add_const_if<T, Enable>::type;
 
 
-template <typename Tuple, typename T>
-struct tuple_has_type;
+template <std::size_t ...Vals>
+struct max_size {};
 
-template <typename T, typename ...Us>
-struct tuple_has_type<std::tuple<Us...>, T> : disjunction<std::is_same<T, Us>...>
+template <>
+struct max_size<> : std::integral_constant<size_t, 0> {};
+
+template <size_t Val>
+struct max_size<Val> : std::integral_constant<size_t, Val> {};
+
+template <std::size_t Lhs, std::size_t Rhs, std::size_t ...Rest>
+struct max_size<Lhs, Rhs, Rest...> : max_size<(Lhs > Rhs ? Lhs : Rhs), Rest...>::type
 {};
+
+template <std::size_t ...Vals>
+using max_size_t = typename max_size<Vals...>::type;
+
 
 template <typename T>
 using to_bool_t = std::integral_constant<bool, bool(T::value)>;
@@ -513,11 +528,12 @@ inline typename std::pointer_traits<Ptr>::element_type* to_address(const Ptr& p)
 
 template <typename Ptr,
     iutil::enable_if_t<!ptr_traits_has_to_address<Ptr>::value> = 0>
-inline auto to_address(const Ptr& p) noexcept -> decltype(to_address(p.operator->()))
+inline auto to_address(const Ptr& p) noexcept -> decltype(iutil::to_address(p.operator->()))
 {
     return iutil::to_address(p.operator->());
 }
 #endif
+
 
 
 // https://en.cppreference.com/w/cpp/compiler_support/17, P0137R1
@@ -562,7 +578,7 @@ inline void destroy(T& o)
 }
 
 
-// Provides properly aligned POD storage for an object.
+// Provides properly aligned POD storage for T.
 template <typename T>
 class aligned_storage_for
 {
@@ -572,10 +588,8 @@ public:
     {
         ::new (&m_buf) T(std::forward<Args>(args)...);
     }
-    inline void destroy(void)
-    {
-        iutil::destroy(get());
-    }
+
+    inline void destroy(void) { iutil::destroy(get()); }
 
     inline T* ptr(void) noexcept
     {
@@ -585,7 +599,6 @@ public:
         return reinterpret_cast<T*>(&m_buf);
 #endif
     }
-
     inline const T* ptr(void) const noexcept
     {
 #if SIJSON_LAUNDER_ALIGNED_STORAGE
@@ -607,11 +620,8 @@ private:
     // https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2019/p1413r2.pdf
     //
 #ifdef __GNUC__
-    struct alignas(T) storage
-    {
-        unsigned char s[sizeof(T)];
-    }
-    m_buf;
+    struct alignas(T) st 
+    { unsigned char s[sizeof(T)]; } m_buf;
 #else
     alignas(T) unsigned char m_buf[sizeof(T)];
 #endif
@@ -660,8 +670,7 @@ struct alloc_has_custom_destroy<Allocator, T, void_t<
 
 // True if T must be default-constructed for a given allocator.
 template <typename Allocator, typename T = typename Allocator::value_type>
-using alloc_must_default_construct = std::integral_constant<bool, !std::is_trivially_constructible<T>::value ||
-    
+using alloc_must_default_construct = std::integral_constant<bool, !std::is_trivially_constructible<T>::value || 
     conjunction<negation<is_instance_of<Allocator, std::allocator>>, alloc_has_custom_construct<Allocator, T>>::value>;
 
 // True if T must be destructed for a given allocator.
