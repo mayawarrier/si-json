@@ -21,9 +21,9 @@ namespace sijson {
 
 enum token : unsigned
 {
-    TOKEN_begin_object,
+    TOKEN_start_object,
     TOKEN_end_object,
-    TOKEN_begin_array,
+    TOKEN_start_array,
     TOKEN_end_array,
     TOKEN_key_separator,
     TOKEN_item_separator,
@@ -31,7 +31,10 @@ enum token : unsigned
     TOKEN_string,
     TOKEN_boolean,
     TOKEN_null,
-    TOKEN_eof // End of stream
+    // end of input
+    TOKEN_eof,
+    // invalid token
+    TOKEN_invalid
 };
 
 enum doc_node_type : unsigned
@@ -40,10 +43,10 @@ enum doc_node_type : unsigned
     DOCNODE_object,
     DOCNODE_key,
     DOCNODE_value,
-    DOCNODE_root,
-    // Number of docnode types.
-    NUM_DOCNODE_TYPES
+    DOCNODE_root
 };
+// Number of docnode types.
+static constexpr int NUM_DOCNODE_TYPES = 5;
 
 inline const char* docnode_name(doc_node_type type)
 {
@@ -108,9 +111,19 @@ struct null_terminated {};
 // Tag type: throw if an I/O operation will result in buffer overflow.
 struct throw_on_overflow {};
 
-struct io_contiguous {};
-struct io_buffered {};
-struct io_basic {};
+
+struct io_basic 
+{
+    static constexpr unsigned flags = 0x1;
+};
+struct io_buffered 
+{
+    static constexpr unsigned flags = 0x3;
+};
+struct io_contiguous 
+{
+    static constexpr unsigned flags = 0x5;
+};
 }
 
 
@@ -124,7 +137,7 @@ struct memspan
 
     template <typename U,
         // Check if U* differs from T* only by cv-qualification, this
-        // allows memspan<char> --> memspan<const char> implicitly
+        // allows eg. memspan<char> --> memspan<const char> implicitly
         // https://stackoverflow.com/questions/42992663/
         iutil::enable_if_t<std::is_convertible<U(*)[], T(*)[]>::value> = 0
     >
@@ -398,64 +411,75 @@ template <> struct encoding_traits<ENCODING_utf32be> { using char_type = char32_
 namespace sijson {
 namespace internal {
 
-// safer to use T and CharT to guarantee sfinae
-// https://cplusplus.github.io/CWG/issues/1558.html
 template <typename T, typename CharT>
 using check_io_typedefs = iutil::void_t<
     iutil::enable_if_same_t<typename T::char_type, CharT>,
     iutil::enable_if_t<iutil::is_nb_unsigned_integral<typename T::size_type>::value>>;
 
 
-template <typename, typename, typename = void>
-struct is_input : std::false_type {};
-
 template <typename T, typename CharT>
-struct is_input<T, CharT, iutil::void_t<
-    check_io_typedefs<T, CharT>, typename T::input_kind,
+using is_basic_input_impl = iutil::void_t<
+    check_io_typedefs<T, CharT>, 
+    iutil::enable_if_t<(T::input_kind::flags & 0x1u) != 0>,
     iutil::enable_if_same_t<decltype(std::declval<T>().peek()), CharT>,
     iutil::enable_if_same_t<decltype(std::declval<T>().take()), CharT>,
     iutil::enable_if_same_t<decltype(std::declval<T>().ipos()), typename T::size_type>,
     iutil::enable_if_same_t<decltype(std::declval<T>().end()), bool>,
-    decltype(std::declval<T>().rewind())>> :
-std::true_type
-{};
+    decltype(std::declval<T>().rewind())>;
 
-
-template <typename, typename, typename = void>
-struct is_output : std::false_type {};
 
 template <typename T, typename CharT>
-struct is_output<T, CharT, iutil::void_t<
-    check_io_typedefs<T, CharT>, typename T::output_kind,
+using is_nothrow_basic_input_impl = std::integral_constant<bool,
+    noexcept(std::declval<T>().peek()) &&
+    noexcept(std::declval<T>().take()) &&
+    noexcept(std::declval<T>().ipos()) &&
+    noexcept(std::declval<T>().end()) &&
+    noexcept(std::declval<T>().rewind())>;
+
+
+template <typename T, typename CharT>
+using is_basic_output_impl = iutil::void_t<
+    check_io_typedefs<T, CharT>,
+    iutil::enable_if_t<(T::output_kind::flags & 0x1u) != 0>,
     decltype(std::declval<T>().put(std::declval<CharT>())),
     decltype(std::declval<T>().put_f(std::declval<CharT>(), std::declval<typename T::size_type>())),
     decltype(std::declval<T>().put_n(std::declval<const CharT*>(), std::declval<std::size_t>())),
     iutil::enable_if_same_t<decltype(std::declval<T>().opos()), typename T::size_type>,
-    decltype(std::declval<T>().flush())>> :
-std::true_type
-{};
+    decltype(std::declval<T>().flush())>;
 
-
-template <typename, typename, typename = void>
-struct is_contiguous_input : std::false_type {};
 
 template <typename T, typename CharT>
-struct is_contiguous_input<T, CharT, iutil::void_t<
-    iutil::enable_if_t<is_input<T, CharT>::value>,
+using is_nothrow_basic_output_impl = std::integral_constant<bool,
+    noexcept(std::declval<T>().put(std::declval<CharT>())) &&
+    noexcept(std::declval<T>().put_f(std::declval<CharT>(), std::declval<typename T::size_type>())) &&
+    noexcept(std::declval<T>().put_n(std::declval<const CharT*>(), std::declval<std::size_t>())) &&
+    noexcept(std::declval<T>().opos()) &&
+    noexcept(std::declval<T>().flush())>;
+
+
+template <typename T, typename CharT>
+using is_contiguous_input_impl = iutil::void_t<
+    is_basic_input_impl<T, CharT>,
+    iutil::enable_if_t<(T::input_kind::flags & 0x4u) != 0>,
     iutil::enable_if_same_t<decltype(std::declval<const T>().ipbeg()), const CharT*>,
     iutil::enable_if_same_t<decltype(std::declval<const T>().ipend()), const CharT*>,
     iutil::enable_if_same_t<decltype(std::declval<const T>().ipcur()), const CharT*>,
-    decltype(std::declval<T>().icommit(std::declval<typename T::size_type>()))>> :
-    std::true_type
-{};
+    decltype(std::declval<T>().icommit(std::declval<typename T::size_type>()))>;
 
-
-template <typename, typename, typename = void>
-struct is_contiguous_output : std::false_type {};
 
 template <typename T, typename CharT>
-struct is_contiguous_output<T, CharT, iutil::void_t<
-    iutil::enable_if_t<is_output<T, CharT>::value>,
+using is_nothrow_contiguous_input_impl = std::integral_constant<bool,
+    is_nothrow_basic_input_impl<T, CharT>::value &&
+    noexcept(std::declval<const T>().ipbeg()) &&
+    noexcept(std::declval<const T>().ipend()) &&
+    noexcept(std::declval<const T>().ipcur()) &&
+    noexcept(std::declval<T>().icommit(std::declval<typename T::size_type>()))>;
+
+
+template <typename T, typename CharT>
+using is_contiguous_output_impl = iutil::void_t<
+    is_basic_output_impl<T, CharT>,
+    iutil::enable_if_t<(T::output_kind::flags & 0x4u) != 0>,
     decltype(std::declval<T>().reserve(std::declval<typename T::size_type>())),
     iutil::enable_if_same_t<decltype(std::declval<T>().opbeg()), CharT*>,
     iutil::enable_if_same_t<decltype(std::declval<T>().opend()), CharT*>,
@@ -463,11 +487,84 @@ struct is_contiguous_output<T, CharT, iutil::void_t<
     iutil::enable_if_same_t<decltype(std::declval<const T>().opbeg()), const CharT*>,
     iutil::enable_if_same_t<decltype(std::declval<const T>().opend()), const CharT*>,
     iutil::enable_if_same_t<decltype(std::declval<const T>().opcur()), const CharT*>,
-    decltype(std::declval<T>().ocommit(std::declval<typename T::size_type>()))>> :
-std::true_type
+    decltype(std::declval<T>().ocommit(std::declval<typename T::size_type>()))>;
+
+
+template <typename T, typename CharT>
+using is_nothrow_contiguous_output_impl = std::integral_constant<bool,
+    is_nothrow_basic_output_impl<T, CharT>::value &&
+    noexcept(std::declval<T>().reserve(std::declval<typename T::size_type>())) &&
+    noexcept(std::declval<T>().opbeg()) &&
+    noexcept(std::declval<T>().opend()) &&
+    noexcept(std::declval<T>().opcur()) &&
+    noexcept(std::declval<const T>().opbeg()) &&
+    noexcept(std::declval<const T>().opend()) &&
+    noexcept(std::declval<const T>().opcur()) &&
+    noexcept(std::declval<T>().ocommit(std::declval<typename T::size_type>()))>;
+
+
+#define SIJSON_GEN_IO_CONCEPT(name, impl) \
+template <typename, typename, typename = void> \
+struct name : std::false_type {}; \
+\
+template <typename T, typename CharT> \
+struct name<T, CharT, impl<T, CharT>> : \
+    std::true_type \
 {};
 
-}
-}
+#define SIJSON_GEN_NT_IO_CONCEPT(name, impl, nt_impl) \
+template <typename, typename, typename = void> \
+struct name : std::false_type {}; \
+\
+template <typename T, typename CharT> \
+struct name<T, CharT, impl<T, CharT>> : \
+    nt_impl<T, CharT> \
+{};
+
+SIJSON_GEN_IO_CONCEPT(is_basic_input, is_basic_input_impl)
+SIJSON_GEN_IO_CONCEPT(is_basic_output, is_basic_output_impl)
+SIJSON_GEN_IO_CONCEPT(is_contiguous_input, is_contiguous_input_impl)
+SIJSON_GEN_IO_CONCEPT(is_contiguous_output, is_contiguous_output_impl)
+
+SIJSON_GEN_NT_IO_CONCEPT(is_nothrow_basic_input, is_basic_input_impl, is_nothrow_basic_input_impl)
+SIJSON_GEN_NT_IO_CONCEPT(is_nothrow_basic_output, is_basic_output_impl, is_nothrow_basic_output_impl)
+SIJSON_GEN_NT_IO_CONCEPT(is_nothrow_contiguous_input, is_contiguous_input_impl, is_nothrow_contiguous_input_impl)
+SIJSON_GEN_NT_IO_CONCEPT(is_nothrow_contiguous_output, is_contiguous_output_impl, is_nothrow_contiguous_output_impl)
+
+#undef SIJSON_GEN_IO_CONCEPT
+#undef SIJSON_GEN_NT_IO_CONCEPT
+
+
+template <typename, typename, typename = void>
+struct is_nothrow_input : std::false_type {};
+
+template <typename T, typename CharT>
+struct is_nothrow_input<T, CharT, iutil::void_t<
+    iutil::enable_if_t<std::is_same<typename T::input_kind, tag::io_basic>::value>>> : 
+    is_nothrow_basic_input<T, CharT>
+{};
+
+template <typename T, typename CharT>
+struct is_nothrow_input<T, CharT, iutil::void_t<
+    iutil::enable_if_t<std::is_same<typename T::input_kind, tag::io_contiguous>::value>>> :
+    is_nothrow_contiguous_input<T, CharT>
+{};
+
+template <typename, typename, typename = void>
+struct is_nothrow_output : std::false_type {};
+
+template <typename T, typename CharT>
+struct is_nothrow_output<T, CharT, iutil::void_t<
+    iutil::enable_if_t<std::is_same<typename T::output_kind, tag::io_basic>::value>>> :
+    is_nothrow_basic_output<T, CharT>
+{};
+
+template <typename T, typename CharT>
+struct is_nothrow_output<T, CharT, iutil::void_t<
+    iutil::enable_if_t<std::is_same<typename T::output_kind, tag::io_contiguous>::value>>> :
+    is_nothrow_contiguous_output<T, CharT>
+{};
+
+}}
 
 #endif

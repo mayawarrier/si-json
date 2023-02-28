@@ -65,20 +65,6 @@ inline char16_t utf_unesc_unit(SiInput& is, tag::io_basic)
     return res;
 }
 
-inline bool is_high_surrogate(char16_t c)
-{
-    return (c & 0xfc00u) == 0xd800u;
-}
-inline bool is_low_surrogate(char16_t c)
-{
-    return (c & 0xfc00u) == 0xdc00u;
-}
-inline bool is_paired_unit(char16_t c)
-{
-    return c >= 0xd800u && c <= 0xdfffu;
-}
-
-
 template <typename TargetCharT>
 struct utf16_convert {};
 
@@ -97,21 +83,21 @@ struct utf16_convert<char>
         }
         else if (cp < 0x800u)
         {
-            os.put((uchar)0xc0u | (uchar)((cp & 0x7c0u) >> 6));
-            os.put((uchar)0x80u | (uchar)(cp & 0x3fu));
+            os.put((uchar)(0xc0u | (cp >> 6)));
+            os.put((uchar)(0x80u | (cp & 0x3fu)));
         }
         else if (cp < 0x10000u)
         {
-            os.put((uchar)0xe0u | (uchar)((cp & 0xf000u) >> 12));
-            os.put((uchar)0x80u | (uchar)((cp & 0xfc0u) >> 6));
-            os.put((uchar)0x80u | (uchar)(cp & 0x3fu));
+            os.put((uchar)(0xe0u | (cp >> 12)));
+            os.put((uchar)(0x80u | ((cp >> 6) & 0x3fu)));
+            os.put((uchar)(0x80u | (cp & 0x3fu)));
         }
         else
         {
-            os.put((uchar)0xf0u | (uchar)((cp & 0x1c0000u) >> 18));
-            os.put((uchar)0x80u | (uchar)((cp & 0x3f000u) >> 12));
-            os.put((uchar)0x80u | (uchar)((cp & 0xfc0u) >> 6));
-            os.put((uchar)0x80u | (uchar)(cp & 0x3fu));
+            os.put((uchar)(0xf0u | (cp >> 18)));
+            os.put((uchar)(0x80u | ((cp >> 12) & 0x3fu)));
+            os.put((uchar)(0x80u | ((cp >> 6) & 0x3fu)));
+            os.put((uchar)(0x80u | (cp & 0x3fu)));
         }
     }
 
@@ -124,16 +110,16 @@ struct utf16_convert<char>
     template <typename SiOutput>
     static inline void put(SiOutput& os, std::pair<char16_t, char16_t> enc)
     {
-        cp_t v = ((cp_t)(enc.first & 0x03ffu) << 10) | (enc.second & 0x03ffu);
+        cp_t v = (((cp_t)enc.first & 0x03ffu) << 10) | (enc.second & 0x03ffu);
         do_put(os, v + 0x10000u);
     }
 };
 
-// for memorystream
+// for in_mem
 template <>
 struct utf16_convert<unsigned char> : utf16_convert<char> {};
 
-#if __cpp_char8_t
+#ifdef __cpp_char8_t
 template <>
 struct utf16_convert<char8_t> : utf16_convert<char> {};
 #endif
@@ -168,6 +154,19 @@ struct utf16_convert<char32_t>
         os.put(((char32_t)enc.first << 16) | enc.second);
     }
 };
+
+inline bool is_high_surrogate(char16_t c)
+{
+    return (c & 0xfc00u) == 0xd800u;
+}
+inline bool is_low_surrogate(char16_t c)
+{
+    return (c & 0xfc00u) == 0xdc00u;
+}
+inline bool is_paired_unit(char16_t c)
+{
+    return c >= 0xd800u && c <= 0xdfffu;
+}
 
 // assumes leading \u was removed
 template <typename SiInput, typename SiOutput>

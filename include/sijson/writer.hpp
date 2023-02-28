@@ -125,7 +125,7 @@ public:
 
     inline void write_newline(void) { m_stream.put(0x0a); }
 
-    inline void write_whitespace(std::size_t num_spaces)
+    inline void write_ws(std::size_t num_spaces)
     {
         m_stream.put_f(0x20, num_spaces);
     }
@@ -289,7 +289,7 @@ public:
     inline void write_newline(void) { m_rw.write_newline(); }
 
     // Write indentation.
-    inline void write_whitespace(std::size_t num_spaces) { m_rw.write_whitespace(num_spaces); }
+    inline void write_ws(std::size_t num_spaces) { m_rw.write_ws(num_spaces); }
 
     // Get stream position.
     inline std::size_t opos(void) { return m_rw.stream().opos(); }

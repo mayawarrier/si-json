@@ -564,7 +564,7 @@ private:
     template <bool IsShort>
     inline void grow_and_copy(Allocator& alloc, std::size_t rqd_cap, const T* src, std::size_t len)
     {
-        assert(rqd_cap >= len && rqd_cap > capacity());
+        SIJSON_ASSERT(rqd_cap >= len && rqd_cap > capacity());
 
         auto new_cap = iutil::vector_allocn_size<T>(alloc, capacity(), rqd_cap);
         pointer bufp = iutil::alloc_new(alloc, new_cap);

@@ -279,7 +279,7 @@ public:
     {
         switch (r.token())
         {
-            case TOKEN_begin_object:
+            case TOKEN_start_object:
             {
                 w.write_start_object();
                 w.write_newline();
@@ -294,7 +294,7 @@ public:
                         w.write_item_separator();
                         w.write_newline();
                     }
-                    w.write_whitespace(m_tab_size * (depth + 1));
+                    w.write_ws(m_tab_size * (depth + 1));
 
                     r.read_string_to(w.stream(), RDFLAG_str_copy);
                     r.read_key_separator();
@@ -307,12 +307,12 @@ public:
 
                 r.read_end_object();
                 w.write_newline();
-                w.write_whitespace(m_tab_size * depth);
+                w.write_ws(m_tab_size * depth);
                 w.write_end_object();
             }
             break;
 
-            case TOKEN_begin_array:
+            case TOKEN_start_array:
             {
                 w.write_start_array();
                 w.write_newline();
@@ -327,7 +327,7 @@ public:
                         w.write_item_separator();
                         w.write_newline();
                     }
-                    w.write_whitespace(m_tab_size * (depth + 1));
+                    w.write_ws(m_tab_size * (depth + 1));
 
                     print(depth + 1);
                     item_sep = true;
@@ -335,7 +335,7 @@ public:
 
                 r.read_end_array();
                 w.write_newline();
-                w.write_whitespace(m_tab_size * depth);
+                w.write_ws(m_tab_size * depth);
                 w.write_end_array();
             }
             break;
@@ -357,8 +357,19 @@ public:
                 w.write_null();
                 break;
 
-            case TOKEN_eof: break;
-            default: assert(false); break;
+            case TOKEN_eof: 
+                break;
+
+            case TOKEN_invalid:
+                throw parse_error(r.in().ipos(), "invalid token");
+
+            default:
+#ifdef __cpp_lib_unreachable
+                std::unreachable();
+#else
+                SIJSON_ASSERT(false); 
+                break;
+#endif
         }
     }
 

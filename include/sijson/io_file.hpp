@@ -25,7 +25,7 @@ class ifilestream
 public:
     using char_type = char;
     using size_type = std::size_t;
-    using input_type = tag::io_buffered;
+    using input_kind = tag::io_buffered;
 
 private:
     ifilestream(internal::file&& file, std::size_t bufsize) :

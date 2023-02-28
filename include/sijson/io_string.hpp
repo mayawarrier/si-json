@@ -363,7 +363,7 @@ public:
     inline void put_n(const char_type* str, std::size_t count) { m_str.append(str, count); }
 
     // No effect.
-    inline void flush(void) {};
+    inline void flush(void) noexcept {};
 
     // Get output position.
     inline size_type opos(void) const noexcept { return m_str.length(); }
@@ -513,7 +513,7 @@ public:
     }
 
     // No effect.
-    inline void flush(void) {}
+    inline void flush(void) noexcept {}
 
     // Get output position.
     inline std::size_t opos(void) const noexcept
@@ -537,7 +537,8 @@ public:
 
     // Throws if ThrowOnOverflow is true and the
     // span is less than new_capacity in size.
-    inline void reserve(size_type new_capacity) const
+    inline void reserve(size_type new_capacity) const 
+        noexcept(!throws_on_overflow)
     {
         do_reserve(new_capacity, throw_on_overflow_t{});
     }
@@ -577,7 +578,7 @@ private:
         if (new_cap > m_span.size() - is_null_terminated)
             throw std::runtime_error(SIJSON_SRCLOC "Output exhausted");
     }
-    inline void do_reserve(size_type new_cap, std::false_type) const noexcept {}
+    inline void do_reserve(size_type, std::false_type) const noexcept {}
 
     inline void check_avail(std::size_t count, std::true_type) const
     {

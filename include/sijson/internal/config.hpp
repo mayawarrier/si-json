@@ -64,6 +64,12 @@
 #endif
 
 
+// MSVC SFINAE is buggy around noexcept pre-VS2019
+#if _MSC_VER < 1920
+#define SIJSON_FIX_MSVC_SFINAE
+#endif
+
+
 // Change the default file buffer size.
 #ifndef SIJSON_FILEBUF_SIZE
 #define SIJSON_FILEBUF_SIZE (4096)

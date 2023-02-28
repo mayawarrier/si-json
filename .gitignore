@@ -10,6 +10,8 @@ ReleaseWithAssert/
 *.psess
 *.vspx
 *.vsp
+*.diagsession
+*.hint
 
 # testing
 a.out

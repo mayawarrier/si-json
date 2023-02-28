@@ -11,72 +11,78 @@
 namespace sijson {
 
 //
-// true_type if T implements:
-// 
-// - char_type = CharT;
-// 
-// - size_type: unsigned integral type large enough
-//   to hold the maximum input size
-// 
+// true if T implements:
+//
 // - char_type peek(); 
 //   Get character. If end(), behavior is undefined.
-// 
 // - char_type take();
 //   Extract character. If end(), behavior is undefined.
-// 
 // - size_type ipos(); 
 //   Get input position.
-// 
 // - bool end(); 
 //   True if input has run out of characters.
-// 
 // - rewind();
 //   Jump to the beginning of the input.
 //
+// And typedefs:
+// - char_type = CharT
+// - size_type: unsigned integral type large enough
+//   to hold the maximum input size
+// - input_kind: an I/O tag type that is at least io_basic
+//
 template <typename T, typename CharT>
-using is_input = iutil::to_bool_t<internal::is_input<T, CharT>>;
+using is_basic_input = internal::is_basic_input<T, CharT>;
+
+//
+// Same as is_basic_input<T, CharT>, but all functions are noexcept.
+//
+template <typename T, typename CharT>
+using is_nothrow_basic_input = internal::is_nothrow_basic_input<T, CharT>;
 
 
 //
-// true_type if T implements:
-// 
-// - char_type = CharT;
-// 
-// - size_type: unsigned integral type large enough
-//   to hold the maximum size of the stream
-// 
+// true if T implements:
+//
 // - put(char_type c); 
 //   Put a character.
-// 
 // - put_f(char_type c, size_type count); 
 //   Put a character count times.
-// 
 // - put_n(const char_type* s, size_t count); 
 //   Put count characters from the array s.
-// 
 // - size_type opos();
 //   Get output position.
-// 
 // - flush(); 
 //   Synchronize with target device.
 //
+// And typedefs:
+// - char_type = CharT;
+// - size_type: unsigned integral type large enough
+//   to hold the maximum size of the stream
+// - output_kind: an I/O tag type that is at least io_basic
+//
 template <typename T, typename CharT>
-using is_output = iutil::to_bool_t<internal::is_output<T, CharT>>;
+using is_basic_output = internal::is_basic_output<T, CharT>;
+
+//
+// Same as is_basic_output<T, CharT>, but all functions are noexcept.
+//
+template <typename T, typename CharT>
+using is_nothrow_basic_output = internal::is_nothrow_basic_output<T, CharT>;
 
 
 //
-// true_type if T satisfies is_input<T, CharT> and further implements:
+// true if T satisfies is_basic_input<T, CharT> and implements:
 // 
 // - const char_type* ipbeg() const;
 //   Pointer to the first char in the stream.
-// 
+
 // - const char_type* ipend() const;
 //   Pointer to one past the last char in the stream.
 // 
 // - const char_type* ipcur() const;
 //   Pointer to the next char returned by peek() or take().
 // 
-// - ioff(size_type count);
+// - icommit(size_type count);
 //   Mark the next count characters in the stream as read.
 //   If count is greater than the number of chars remaining
 //   in the stream, the behavior is undefined. After this 
@@ -87,13 +93,22 @@ using is_output = iutil::to_bool_t<internal::is_output<T, CharT>>;
 // - ipbeg() and ipend() remain unchanged after calls
 //   to peek(), take(), ipos(), end(), rewind(), or any 
 //   const member functions.
+// 
+// And typedefs:
+// - output_kind: an I/O tag type that is at least io_contiguous
 //
-template <typename T, typename CharT>
-using is_contiguous_input = iutil::to_bool_t<internal::is_contiguous_input<T, CharT>>;
+template <typename T, typename CharT, typename = void>
+using is_contiguous_input = internal::is_contiguous_input<T, CharT>;
+
+//
+// Same as is_contiguous_input<T, CharT>, but all functions are noexcept.
+//
+template <typename T, typename CharT, typename = void>
+using is_nothrow_contiguous_input = internal::is_nothrow_contiguous_input<T, CharT>;
 
 
 //
-// true_type if T satisfies is_output<T, CharT> and further implements:
+// true if T satisfies is_basic_output<T, CharT> and implements:
 // 
 // - char_type* opbeg(); 
 //   const char_type* opbeg() const;
@@ -119,9 +134,31 @@ using is_contiguous_input = iutil::to_bool_t<internal::is_contiguous_input<T, Ch
 // - opbeg() <= opcur() <= opend()
 // - opbeg() and opend() remain unchanged after calls to outpos()
 //   or any const member functions.
+// 
+// And typedefs:
+// - output_kind: an I/O tag type that is at least io_contiguous
+//
+template <typename T, typename CharT, typename = void>
+using is_contiguous_output = internal::is_contiguous_output<T, CharT>;
+
+//
+// Same as is_contiguous_output<T, CharT>, but all functions are noexcept.
 //
 template <typename T, typename CharT>
-using is_contiguous_output = iutil::to_bool_t<internal::is_contiguous_output<T, CharT>>;
+using is_nothrow_contiguous_output = internal::is_nothrow_contiguous_output<T, CharT>;
+
+
+//
+// Checks if all input functions are noexcept (given T's input_kind).
+//
+template <typename T, typename CharT>
+using is_nothrow_input = internal::is_nothrow_input<T, CharT>;
+
+//
+// Checks if all output functions are noexcept (given T's output_kind).
+//
+template <typename T, typename CharT>
+using is_nothrow_output = internal::is_nothrow_output<T, CharT>;
 
 }
 

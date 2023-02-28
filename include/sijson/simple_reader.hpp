@@ -50,6 +50,9 @@ private:
     using CharT = typename Input::char_type;
     using ChTraits = std::char_traits<CharT>;
 
+    static constexpr bool IsNoThrowInput = 
+        is_nothrow_input<SiInput, CharT>::value;
+
 public:
     using char_type = CharT;
     using input_type = SiInput;
@@ -61,7 +64,8 @@ public:
 
     // Skip whitespace. 
     // Returns true if input has more characters.
-    inline bool skip_ws(void)
+    inline bool skip_ws(void) 
+        noexcept(IsNoThrowInput)
     {
         while (!m_is.end() && iutil::is_ws(m_is.peek())) {
             m_is.take();
@@ -69,17 +73,18 @@ public:
         return !m_is.end();
     }
 
-    // Get next unread token.
-    inline sijson::token token(void)
+    // Get current token.
+    inline sijson::token token(void) 
+        noexcept(IsNoThrowInput)
     {
         if (!skip_ws())
             return TOKEN_eof;
 
         switch (m_is.peek())
         {
-        case 0x7b: return TOKEN_begin_object;   // '{'
+        case 0x7b: return TOKEN_start_object;   // '{'
         case 0x7d: return TOKEN_end_object;     // '}'
-        case 0x5b: return TOKEN_begin_array;    // '['
+        case 0x5b: return TOKEN_start_array;    // '['
         case 0x5d: return TOKEN_end_array;      // ']'
         case 0x3a: return TOKEN_key_separator;  // ':'
         case 0x2c: return TOKEN_item_separator; // ','
@@ -89,10 +94,9 @@ public:
         case 0x6e: return TOKEN_null;           // 'n'
         case 0x2d: return TOKEN_number;         // '-'
         default:
-            if (iutil::is_digit(m_is.peek()))
-                return TOKEN_number;
-            else
-                throw parse_error(m_is.ipos(), "invalid token");
+            return iutil::is_digit(m_is.peek()) ?
+                TOKEN_number : 
+                TOKEN_invalid;
         }
     }
 
@@ -216,7 +220,7 @@ public:
         throw parse_error(err_offset, "expected null");
     }
 
-    // Read string. String is unescaped.
+    // Read string. Throws on failure.
     template <typename StrAllocator = std::allocator<CharT>>
     inline std::basic_string<CharT, ChTraits, StrAllocator> read_string(void)
     {
@@ -225,7 +229,6 @@ public:
         skip_ws();
         error e = do_readstr(m_is, os);
         if (e) throw parse_error(m_is.ipos(), e);
-
         return std::move(os).str();
     }
 
@@ -237,6 +240,7 @@ public:
     //
     template <typename Output>
     inline error try_read_string_to(Output& out, unsigned flags = RDFLAG_none)
+        noexcept(IsNoThrowInput && is_nothrow_output<iutil::remove_cvref_t<Output>, CharT>::value)
     {
         static_assert(std::is_same<typename Output::char_type, CharT>::value,
             "Output must have same char_type as input.");
@@ -264,6 +268,7 @@ public:
     }
 
     // Read string into given output object.
+    // Throws on failure.
     //
     // flags may contain one or more of:
     // - RDFLAG_str_copy: copy string as-is (without unescaping).
@@ -296,11 +301,13 @@ public:
 private:
     static inline std::string c_to_errstr(CharT c)
     {
-        std::string res;
-        if (c <= static_cast<CharT>(127))
-            res.assign("expected '" + (char)c + '\'');
-        else
-            res.assign("expected char " + 
+        std::string res = "expected ";
+        if (c <= static_cast<CharT>(127)) 
+        {
+            res += (char)c; 
+            res += '\'';
+        } 
+        else res.append("char " + 
                 std::to_string(iutil::make_unsigned_t<CharT>(c)));
         return res;
     }
@@ -317,7 +324,7 @@ private:
         while (!is.end() && iutil::is_digit(is.peek()))
         {
             UintT old = out_value;
-            out_value = 10 * out_value + (UintT)(is.peek() - (CharT)0x30); // '0'
+            out_value = 10 * out_value + ((UintT)is.peek() - (UintT)0x30); // '0'
             if (out_value < old) return false; // overflow
             is.take();
         }
@@ -442,7 +449,7 @@ private:
         {
             old_int_v = int_v;
             auto c = is.take(); fpstr.put(c);
-            int_v = 10 * int_v + (c - (CharT)0x30); // '0'
+            int_v = 10 * int_v + ((std::uintmax_t)c - 0x30); // '0'
             if (int_v < old_int_v) return false; // overflow
         }
         if (is.end() || iutil::is_ws(is.peek()))
@@ -466,7 +473,7 @@ private:
         }
     }
 
-    template <typename MyInputKind = InputKind, typename SiOutput>
+    template <typename SiOutput>
     static inline bool unescape(SiInput& is, SiOutput& os)
     {
         // row = 16 chars
@@ -497,7 +504,7 @@ private:
         else if (c == 0x75) // 'u' (unicode)
         {
             is.take();
-            if (!iutil::utf_put_unescape(is, os, MyInputKind{}))
+            if (!iutil::utf_put_unescape(is, os, InputKind{}))
                 return false;
         }
         else return false;

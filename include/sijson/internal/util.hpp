@@ -106,7 +106,7 @@ template <typename B>
 struct negation : std::integral_constant<bool, !bool(B::value)> {};
 #endif
 
-#if defined(__cpp_lib_void_t) || SIJSON_CPLUSPLUS >= 201703L
+#if !defined(SIJSON_FIX_MSVC_SFINAE) && (defined(__cpp_lib_void_t) || SIJSON_CPLUSPLUS >= 201703L)
 using std::void_t;
 #else
 // https://en.cppreference.com/w/cpp/types/void_t
@@ -428,18 +428,11 @@ template <typename CharT>
 inline bool is_digit(CharT c) noexcept { return c >= 0x30 && c <= 0x39; }
 
 template <typename CharT>
-inline bool is_ws(CharT c) noexcept
+constexpr bool is_ws(CharT c) noexcept
 {
-    switch (c)
-    {
-        case 0x20: // space
-        case 0x09: // horizontal tab
-        case 0x0a: // line feed
-        case 0x0d: // carriage return
-            return true;
-        default: 
-            return false;
-    }
+    // https://pdimov.github.io/blog/2020/07/19/llvm-and-memchr/
+    // checks for '\t', '\r', '\n', ' '
+    return c <= static_cast<CharT>(32) && ((1ull << c) & 0x100002600ull);
 }
 
 template <typename SiInput>

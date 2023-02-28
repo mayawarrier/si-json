@@ -158,7 +158,7 @@ public:
     }
 
     // No effect.
-    inline void flush(void) {}
+    inline void flush(void) noexcept {}
 
     // Get output position.
     inline size_type opos(void) const noexcept { return m_pos; }
