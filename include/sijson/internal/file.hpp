@@ -5,8 +5,7 @@
 #include <cstddef>
 #include <cstdio>
 
-#include "config.hpp"
-#include "util.hpp"
+#include "core.hpp"
 
 
 namespace sijson {

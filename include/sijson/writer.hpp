@@ -14,11 +14,9 @@
 #include <utility>
 #include <stdexcept>
 
-#include "internal/util.hpp"
-#include "internal/buffers.hpp"
+#include "internal/core.hpp"
 #include "internal/impl_rw.hpp"
 
-#include "core.hpp"
 #include "io_string.hpp"
 #include "io_wrappers.hpp"
 
@@ -30,7 +28,7 @@ template <encoding Encoding, typename Ostream>
 class raw_writer
 {
 private:
-    using JsonOstream = typename ostream_traits<Ostream>::template wrapper_type_or<Ostream>;
+    using JsonOstream = typename output_traits<Ostream>::template wrapper_type_or<Ostream>;
     using CharT = typename Ostream::char_type;
 
 public:
@@ -123,7 +121,13 @@ public:
         write_t_impl::write(*this, value);
     }
 
-    inline void write_newline(void) { m_stream.put(0x0a); }
+    inline void write_newline(void) 
+    {
+#ifdef _MSC_VER
+        m_stream.put(0x0d); // CR
+#endif
+        m_stream.put(0x0a); // LF
+    }
 
     inline void write_ws(std::size_t num_spaces)
     {
@@ -166,7 +170,7 @@ private:
     };
 
 private:
-    typename ostream_traits<Ostream>::template wrapper_type_or<Ostream&> m_stream;
+    typename output_traits<Ostream>::template wrapper_type_or<Ostream&> m_stream;
 };
 
 // for now
@@ -177,7 +181,7 @@ using raw_ascii_writer = raw_writer<ENCODING_utf8, Ostream>;
 // ASCII JSON writer.
 template <typename Ostream, 
     // Allocator type used for internal purposes/book-keeping.
-    typename Allocator = std::allocator<iutil::placeholder>>
+    typename Allocator = std::allocator<iutil::empty>>
 class ascii_writer : public internal::rw_base<Allocator>
 {
 public:
@@ -191,7 +195,7 @@ public:
     // For eg. if you call start_object(), parent_node()
     // returns DOCNODE_object until the next call to 
     // end_object() or start_array().
-    inline doc_node_type parent_node(void) const { return this->m_nodes.top().type; }
+    inline docnode parent_node(void) const { return this->m_nodes.top().type; }
 
     // Start writing object.
     inline void start_object(void)
@@ -316,7 +320,7 @@ template <encoding Encoding, typename Ostream>
 template <typename UintT>
 inline void raw_writer<Encoding, Ostream>::write_uint_impl(JsonOstream& stream, UintT value)
 {
-    char strbuf[iutil::max_chars10<UintT>::value];
+    char strbuf[iutil::max_outchars10<UintT>::value];
     const auto strbuf_end = strbuf + sizeof(strbuf);
 
     auto strp = strbuf_end;
@@ -333,7 +337,7 @@ template <encoding Encoding, typename Ostream>
 template <typename IntT>
 inline void raw_writer<Encoding, Ostream>::write_int_impl(JsonOstream& stream, IntT value)
 {
-    char strbuf[iutil::max_chars10<IntT>::value];
+    char strbuf[iutil::max_outchars10<IntT>::value];
     const auto strbuf_end = strbuf + sizeof(strbuf);
 
     auto abs_value = iutil::absu(value);
@@ -354,15 +358,15 @@ template <encoding Encoding, typename Ostream>
 template <typename FloatT>
 inline void raw_writer<Encoding, Ostream>::write_floating_impl(JsonOstream& stream, FloatT value)
 {
-#if SIJSON_LOGIC_ERRORS
+#if SIJSON_USE_LOGIC_ERRORS
     if (!std::isfinite(value))
         throw std::invalid_argument("Value is NAN or infinity.");
 #else
     assert(std::isfinite(value));
 #endif
 
-    char strbuf[iutil::max_chars10<FloatT>::value];
-    internal::memspanbuf streambuf(strbuf, std::ios_base::out);
+    char strbuf[iutil::max_outchars10<FloatT>::value];
+    iutil::memspanbuf streambuf(strbuf, std::ios_base::out);
 
     std::ostream sstream(&streambuf);
     sstream.imbue(std::locale::classic()); // make decimal point '.'
@@ -378,24 +382,25 @@ inline void raw_writer<Encoding, Ostream>::write_number_impl(JsonOstream& stream
 {
     switch (value.type())
     {
-        case number::TYPE_float:
+        case NUMTYPE_float:
             write_floating_impl(stream, value.get_unsafe<float>());
             break;
-        case number::TYPE_double:
+        case NUMTYPE_double:
             write_floating_impl(stream, value.get_unsafe<double>());
             break;
-        case number::TYPE_intmax:
+        case NUMTYPE_integer:
             write_int_impl(stream, value.get_unsafe<std::intmax_t>());
             break;
-        case number::TYPE_uintmax:
+        case NUMTYPE_uinteger:
             write_uint_impl(stream, value.get_unsafe<std::uintmax_t>());
             break;
 
         default:
-#ifdef __cpp_lib_unreachable
-            std::unreachable();
-#else
+#ifndef __cpp_lib_unreachable
+            SIJSON_ASSERT(false);
             break;
+#else
+            std::unreachable();
 #endif
     }
 }
@@ -456,7 +461,7 @@ template <typename Ostream, typename Allocator>
 template <typename Func>
 inline void ascii_writer<Ostream, Allocator>::write_key_impl(Func do_write, bool is_null)
 {
-#if SIJSON_LOGIC_ERRORS
+#if SIJSON_USE_LOGIC_ERRORS
     if (is_null) 
         throw std::invalid_argument("Key is null.");
 #else
@@ -490,7 +495,7 @@ template <typename Value, typename Func>
 inline void ascii_writer<Ostream, Allocator>::write_key_value_impl(
     Func do_write_key, bool is_key_null, const Value& value)
 {
-#if SIJSON_LOGIC_ERRORS
+#if SIJSON_USE_LOGIC_ERRORS
     if (is_key_null)
         throw std::invalid_argument("Key is null.");
 #else

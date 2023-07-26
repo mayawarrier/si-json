@@ -1,10 +1,9 @@
 //
-// Shared types + definitions from internal/.
-// Also defines the concepts in SIJSON and type traits to detect them.
+// Defines the concepts in SIJSON and type traits to detect them.
 //
 
-#ifndef SIJSON_CORE_HPP
-#define SIJSON_CORE_HPP
+#ifndef SIJSON_CONCEPTS_HPP
+#define SIJSON_CONCEPTS_HPP
 
 #include "internal/core.hpp"
 
@@ -24,20 +23,20 @@ namespace sijson {
 // - rewind();
 //   Jump to the beginning of the input.
 //
-// And typedefs:
+// And has typedefs:
 // - char_type = CharT
 // - size_type: unsigned integral type large enough
 //   to hold the maximum input size
 // - input_kind: an I/O tag type that is at least io_basic
 //
 template <typename T, typename CharT>
-using is_basic_input = internal::is_basic_input<T, CharT>;
+using is_basic_input = iconcepts::is_basic_input<T, CharT>;
 
 //
 // Same as is_basic_input<T, CharT>, but all functions are noexcept.
 //
 template <typename T, typename CharT>
-using is_nothrow_basic_input = internal::is_nothrow_basic_input<T, CharT>;
+using is_nothrow_basic_input = iconcepts::is_nothrow_basic_input<T, CharT>;
 
 
 //
@@ -54,20 +53,20 @@ using is_nothrow_basic_input = internal::is_nothrow_basic_input<T, CharT>;
 // - flush(); 
 //   Synchronize with target device.
 //
-// And typedefs:
+// And has typedefs:
 // - char_type = CharT;
 // - size_type: unsigned integral type large enough
 //   to hold the maximum size of the stream
 // - output_kind: an I/O tag type that is at least io_basic
 //
 template <typename T, typename CharT>
-using is_basic_output = internal::is_basic_output<T, CharT>;
+using is_basic_output = iconcepts::is_basic_output<T, CharT>;
 
 //
 // Same as is_basic_output<T, CharT>, but all functions are noexcept.
 //
 template <typename T, typename CharT>
-using is_nothrow_basic_output = internal::is_nothrow_basic_output<T, CharT>;
+using is_nothrow_basic_output = iconcepts::is_nothrow_basic_output<T, CharT>;
 
 
 //
@@ -75,7 +74,7 @@ using is_nothrow_basic_output = internal::is_nothrow_basic_output<T, CharT>;
 // 
 // - const char_type* ipbeg() const;
 //   Pointer to the first char in the stream.
-
+//
 // - const char_type* ipend() const;
 //   Pointer to one past the last char in the stream.
 // 
@@ -87,24 +86,24 @@ using is_nothrow_basic_output = internal::is_nothrow_basic_output<T, CharT>;
 //   If count is greater than the number of chars remaining
 //   in the stream, the behavior is undefined. After this 
 //   call, ipos() increases by count.
+// 
+// And has typedefs:
+// - output_kind: an I/O tag type that is at least io_contiguous
 //
 // The following conditions must also hold:
 // - ipbeg() <= ipcur() <= ipend()
 // - ipbeg() and ipend() remain unchanged after calls
 //   to peek(), take(), ipos(), end(), rewind(), or any 
 //   const member functions.
-// 
-// And typedefs:
-// - output_kind: an I/O tag type that is at least io_contiguous
 //
 template <typename T, typename CharT, typename = void>
-using is_contiguous_input = internal::is_contiguous_input<T, CharT>;
+using is_contiguous_input = iconcepts::is_contiguous_input<T, CharT>;
 
 //
 // Same as is_contiguous_input<T, CharT>, but all functions are noexcept.
 //
 template <typename T, typename CharT, typename = void>
-using is_nothrow_contiguous_input = internal::is_nothrow_contiguous_input<T, CharT>;
+using is_nothrow_contiguous_input = iconcepts::is_nothrow_contiguous_input<T, CharT>;
 
 
 //
@@ -129,36 +128,36 @@ using is_nothrow_contiguous_input = internal::is_nothrow_contiguous_input<T, Cha
 //   opbeg(), opcur(), or opend(). If count is greater than the 
 //   remaining writable memory, the behavior is undefined. After this call,
 //   outpos() increases by count.
+// 
+// And has typedefs:
+// - output_kind: an I/O tag type that is at least io_contiguous
 //
 // The following conditions must also hold:
 // - opbeg() <= opcur() <= opend()
-// - opbeg() and opend() remain unchanged after calls to outpos()
+// - opbeg() and opend() remain unchanged after calls to opos()
 //   or any const member functions.
-// 
-// And typedefs:
-// - output_kind: an I/O tag type that is at least io_contiguous
 //
 template <typename T, typename CharT, typename = void>
-using is_contiguous_output = internal::is_contiguous_output<T, CharT>;
+using is_contiguous_output = iconcepts::is_contiguous_output<T, CharT>;
 
 //
 // Same as is_contiguous_output<T, CharT>, but all functions are noexcept.
 //
 template <typename T, typename CharT>
-using is_nothrow_contiguous_output = internal::is_nothrow_contiguous_output<T, CharT>;
+using is_nothrow_contiguous_output = iconcepts::is_nothrow_contiguous_output<T, CharT>;
 
 
 //
-// Checks if all input functions are noexcept (given T's input_kind).
+// Checks if all input functions are noexcept (for T's input_kind).
 //
 template <typename T, typename CharT>
-using is_nothrow_input = internal::is_nothrow_input<T, CharT>;
+using is_nothrow_input = iconcepts::is_nothrow_input<T, CharT>;
 
 //
-// Checks if all output functions are noexcept (given T's output_kind).
+// Checks if all output functions are noexcept (for T's output_kind).
 //
 template <typename T, typename CharT>
-using is_nothrow_output = internal::is_nothrow_output<T, CharT>;
+using is_nothrow_output = iconcepts::is_nothrow_output<T, CharT>;
 
 }
 

@@ -1,6 +1,6 @@
 
-#ifndef SIJSON_MEMORYSTREAM_HPP
-#define SIJSON_MEMORYSTREAM_HPP
+#ifndef SIJSON_IO_MEM_HPP
+#define SIJSON_IO_MEM_HPP
 
 #include <cstddef>
 #include <cassert>
@@ -9,9 +9,7 @@
 #include <algorithm>
 #include <stdexcept>
 
-#include "core.hpp"
-#include "internal/util.hpp"
-#include "internal/buffers.hpp"
+#include "internal/core.hpp"
 
 namespace sijson {
 
@@ -28,18 +26,18 @@ class in_mem
 public:
     using char_type = unsigned char;
     using size_type = std::size_t;
-    using input_kind = tag::io_contiguous;
+    using input_kind = io_contiguous;
 
 public:
     in_mem(memspan<const char_type> src) :
-        m_begin(src.begin), m_cur(src.begin), m_end(src.end)
+        m_beg(src.begin), m_cur(src.begin), m_end(src.end)
     {
-#if SIJSON_LOGIC_ERRORS
+#if SIJSON_USE_LOGIC_ERRORS
         if (!src.begin || !src.end)
-            throw std::invalid_argument(SIJSON_SRCLOC + 
-                iutil::nameof<in_mem>() + ": src is null.");
+            throw std::invalid_argument(
+                SIJSON_STRFY(sijson::in_mem) + ": src is null.");
 #else
-        assert(src.begin && src.end);
+        SIJSON_ASSERT(src.begin && src.end);
 #endif
     }
 
@@ -63,16 +61,16 @@ public:
     inline bool end(void) const noexcept { return m_cur == m_end; }
 
     // Jump to the beginning.
-    inline void rewind(void) noexcept { m_cur = m_begin; }
+    inline void rewind(void) noexcept { m_cur = m_beg; }
 
     // Get input position.
     inline size_type ipos(void) const noexcept
     {
-        return (size_type)(m_cur - m_begin);
+        return (size_type)(m_cur - m_beg);
     }
 
     // Pointer to the first byte.
-    inline const char_type* ipbeg(void) const noexcept { return m_begin; }
+    inline const char_type* ipbeg(void) const noexcept { return m_beg; }
 
     // Pointer to the current byte.
     inline const char_type* ipcur(void) const noexcept { return m_cur; }
@@ -86,7 +84,7 @@ public:
     inline void icommit(size_type count) noexcept { m_cur += count; }
 
 private:
-    const char_type* m_begin;
+    const char_type* m_beg;
     const char_type* m_cur;
     const char_type* m_end;
 };
@@ -109,7 +107,7 @@ public:
     using char_type = unsigned char;
     using size_type = std::size_t;
     using allocator_type = Allocator;
-    using output_kind = tag::io_contiguous;
+    using output_kind = io_contiguous;
 
 public:
     basic_out_mem(size_type capacity,
@@ -196,7 +194,7 @@ public:
 
 private:
     size_type m_pos;
-    internal::buffer<char_type, Allocator> m_buf;
+    iutil::buffer<char_type, Allocator> m_buf;
 };
 
 using out_mem = basic_out_mem<std::allocator<unsigned char>>;

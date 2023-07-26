@@ -1,6 +1,6 @@
 
-#ifndef SIJSON_STREAM_WRAPPERS_HPP
-#define SIJSON_STREAM_WRAPPERS_HPP
+#ifndef SIJSON_IO_WRAPPERS_HPP
+#define SIJSON_IO_WRAPPERS_HPP
 
 #include <cstddef>
 #include <type_traits>
@@ -10,8 +10,7 @@
 #include <algorithm>
 #include <stdexcept>
 
-#include "internal/util.hpp"
-#include "core.hpp"
+#include "internal/core.hpp"
 
 
 namespace sijson {
@@ -28,7 +27,7 @@ private:
 public:
     using char_type = typename StdIstream::char_type;
     using size_type = iutil::make_unsigned_t<std::streamoff>;
-    using input_kind = tag::io_basic;
+    using input_kind = io_basic;
     using underlying_type = StdIstream;
 
 public:
@@ -79,7 +78,7 @@ private:
 public:
     using char_type = typename StdOstream::char_type;
     using size_type = iutil::make_unsigned_t<std::streamoff>;  
-    using output_kind = tag::io_basic;
+    using output_kind = io_basic;
     using underlying_type = StdOstream;
     
 public:
@@ -105,7 +104,7 @@ public:
     // Put characters from an array.
     inline void put_n(const char_type* str, std::size_t count)
     {
-#if SIJSON_LOGIC_ERRORS
+#if SIJSON_USE_LOGIC_ERRORS
         if (count > std::numeric_limits<std::streamsize>::max())
             throw std::length_error("Array too large.");
 #else
@@ -143,7 +142,7 @@ struct input_traits
 };
 
 template <typename T>
-struct ostream_traits
+struct output_traits
 {
     static constexpr bool requires_wrapper = iutil::inherits_std_basic_ostream<T>::value;
 
@@ -154,12 +153,18 @@ struct ostream_traits
         iutil::inherits_std_basic_ostream<T>::value, std_ostream_wrapper<T>, U>::type;
 };
 
+template <typename T>
+using to_si_input_t = typename input_traits<T>::template wrapper_type_or<T>;
 
 template <typename T>
-using to_sijson_input_t = typename input_traits<T>::template wrapper_type_or<T&>;
+using to_si_output_t = typename output_traits<T>::template wrapper_type_or<T>;
+
 
 template <typename T>
-using to_sijson_output_t = typename ostream_traits<T>::template wrapper_type_or<T&>;
+using wrap_input_t = typename input_traits<T>::template wrapper_type_or<T&>;
+
+template <typename T>
+using wrap_output_t = typename output_traits<T>::template wrapper_type_or<T&>;
 
 }
 #endif
