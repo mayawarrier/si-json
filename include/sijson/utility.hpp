@@ -8,264 +8,153 @@
 #include <string>
 #include <utility>
 
-#include "internal/config.hpp"
-#include "internal/util.hpp"
+#include "internal/core.hpp"
 
 #include "io_string.hpp"
 #include "io_wrappers.hpp"
 #include "writer.hpp"
 #include "reader.hpp"
 
-#if SIJSON_HAS_STRING_VIEW
+#ifdef SIJSON_HAS_STRING_VIEW
 #include <string_view>
 #endif
 
 
 namespace sijson {
 
-namespace internal 
-{
-template <typename Value, typename Istream>
-inline Value to_value_impl(Istream& is)
-{
-    static_assert(!iutil::is_readable_string_type<Value, char>::value,
-        "Input is already a string.");
-
-    simple_reader<Istream> reader(is);
-    return reader.template read<Value>();
-}
-
-template <typename DestString, typename Istream>
-inline DestString escape_impl(Istream& is)
-{
-    static_assert(iutil::is_instance_of_basic_string<DestString, char>::value,
-        "DestString is not a std::basic_string.");
-
-    using Allocator = typename DestString::allocator_type;
-
-    basic_out_stdstr<char, Allocator> os;
-    raw_ascii_writer<decltype(os)> writer(os);
-    writer.write_string_from(is, false);
-
-    return std::move(os).str();
-}
-
-template <typename DestString, typename Istream>
-inline DestString unescape_impl(Istream& is)
-{
-    static_assert(iutil::is_instance_of_basic_string<DestString, char>::value,
-        "DestString is not a std::basic_string.");
-
-    using Allocator = typename DestString::allocator_type;
-
-    basic_out_stdstr<char, Allocator> os;
-    simple_reader<Istream> reader(is);
-    reader.read_string_to(os, RDFLAG_str_nodelim);
-
-    return std::move(os).str();
-}
-}
-
 // Convert value to string.
 template <
-    typename Allocator = std::allocator<char>,
+    typename CharT = char,
+    typename Allocator = std::allocator<CharT>,
     typename Value>
-    inline std::basic_string<char, std::char_traits<char>, Allocator> to_string(const Value& value)
+inline iutil::stdstr<CharT, Allocator> to_string(const Value& value)
 {
-    static_assert(!iutil::is_writable_string_type<Value, char>::value,
+    static_assert(
+        !iutil::is_writable_string_type<Value, CharT>::value,
         "Input is already a string.");
 
-    basic_out_stdstr<char, Allocator> os;
-    raw_ascii_writer<decltype(os)> writer(os);
-    writer.write(value);
+    basic_out_stdstr<CharT, Allocator> os;
+    raw_ascii_writer<decltype(os)> w(os);
+    w.write(value);
 
     return std::move(os).str();
 }
 
-// Convert value to string of custom type.
-// DestString must be a std::basic_string.
-template <typename DestString, typename Value>
-inline DestString to_string_as(const Value& value)
-{
-    static_assert(iutil::is_instance_of_basic_string<DestString, char>::value,
-        "DestString is not a std::basic_string.");
-
-    return to_string<typename DestString::allocator_type>(value);
-}
-
 // -------------------------------------------------------------------
 
 // Convert string to value.
-template <typename Value>
-inline Value to_value(const char* string)
+template <typename Value, typename CharT>
+inline Value to_value(const CharT* str, std::size_t length)
 {
-    in_str is(string);
-    return internal::to_value_impl<Value>(is);
+    static_assert(
+        !iutil::is_readable_string_type<Value, CharT>::value,
+        "Input is already a string.");
+
+    in_str is(str, length);
+    raw_reader<in_str, no_whitespace> r(is);
+    return r.template read<Value>();
 }
 
 // Convert string to value.
-template <typename Value>
-inline Value to_value(const char* string, std::size_t length)
+template <typename Value, typename CharT>
+inline Value to_value(const CharT* str)
 {
-    in_str is(string, length);
-    return internal::to_value_impl<Value>(is);
+    return to_value<Value>(str, std::char_traits<CharT>::length(str));
 }
 
-#if SIJSON_HAS_STRING_VIEW
+#ifdef SIJSON_HAS_STRING_VIEW
 // Convert string to value.
-template <typename Value>
-inline Value to_value(std::basic_string_view<char, std::char_traits<char>> strview)
+template <typename Value, typename CharT>
+inline Value to_value(std::basic_string_view<CharT> str)
 {
-    in_str is(strview);
-    return internal::to_value_impl<Value>(is);
+    return to_value<Value>(str.data(), str.length());
 }
 #endif
 
 // Convert string to value.
-template <typename Value, typename ...Ts>
-inline Value to_value(const std::basic_string<char, Ts...>& string)
+template <typename Value, typename CharT, typename Allocator>
+inline Value to_value(const iutil::stdstr<CharT, Allocator>& str)
 {
-    in_str is(string);
-    return internal::to_value_impl<Value>(is);
+    return to_value<Value>(str.data(), str.length());
 }
 
 // -------------------------------------------------------------------
 
-// Escape to string of custom type.
-// DestString must be a std::basic_string.
-template <typename DestString> 
-inline DestString escape_as(const char* string)
+// Escape string.
+template <typename CharT, typename Allocator = std::allocator<CharT>>
+inline iutil::stdstr<CharT, Allocator> escape(const CharT* str, std::size_t length)
 {
-    in_str is(string);
-    return internal::escape_impl<DestString>(is);
+    in_str is(str, length);
+    basic_out_stdstr<CharT, Allocator> os;
+
+    raw_ascii_writer<decltype(os)> w(os);
+    w.write_string_from(is, false);
+
+    return std::move(os).str();
 }
 
 // Escape string.
-inline std::string escape(const char* string)
+template <typename CharT, typename Allocator = std::allocator<CharT>>
+inline iutil::stdstr<CharT, Allocator> escape(const CharT* str)
 {
-    return escape_as<std::string>(string);
+    return escape<CharT, Allocator>(str, std::char_traits<CharT>::length(str));
 }
 
-// Escape to string of custom type.
-// DestString must be a std::basic_string.
-template <typename DestString>
-inline DestString escape_as(const char* string, std::size_t length)
-{
-    in_str is(string, length);
-    return internal::escape_impl<DestString>(is);
-}
-
+#ifdef SIJSON_HAS_STRING_VIEW
 // Escape string.
-inline std::string escape(const char* string, std::size_t length)
+template <typename CharT, typename Allocator = std::allocator<CharT>>
+inline iutil::stdstr<CharT, Allocator> escape(std::basic_string_view<CharT> str)
 {
-    return escape_as<std::string>(string, length);
-}
-
-#if SIJSON_HAS_STRING_VIEW
-// Escape to string of custom type.
-// DestString must be a std::basic_string.
-template <typename DestString, typename SrcStringView,
-    iutil::enable_if_t<iutil::is_instance_of_basic_string_view<SrcStringView, char>::value> = 0>
-    inline DestString escape_as(SrcStringView strview)
-{
-    in_str is(strview);
-    return internal::escape_impl<DestString>(is);
-}
-
-// Escape string.
-inline std::string escape(std::string_view strview)
-{
-    return escape_as<std::string>(strview);
+    return escape<CharT, Allocator>(str.data(), str.length());
 }
 #endif
 
-// Escape to string of custom type.
-// DestString must be a std::basic_string.
-template <typename DestString, typename SrcString,
-    iutil::enable_if_t<iutil::is_instance_of_basic_string<SrcString, char>::value> = 0>
-inline DestString escape_as(const SrcString& string)
-{
-    in_str is(string);
-    return internal::escape_impl<DestString>(is);
-}
-
 // Escape string.
-template <typename Allocator>
-inline std::basic_string<std::char_traits<char>, Allocator> escape(const std::basic_string<std::char_traits<char>, Allocator>& string)
+template <typename CharT, typename Allocator>
+inline iutil::stdstr<CharT, Allocator> escape(const iutil::stdstr<CharT, Allocator>& str)
 {
-    in_str is(string);
-    return internal::escape_impl<std::basic_string<std::char_traits<char>, Allocator>>(is);
+    return escape<CharT, Allocator>(str.data(), str.length());
 }
 
 // -------------------------------------------------------------------
 
-// Unescape to string of custom type.
-// DestString must be a std::basic_string.
-template <typename DestString>
-inline DestString unescape_as(const char* string)
+// Unescape string.
+template <typename CharT, typename Allocator = std::allocator<CharT>>
+inline iutil::stdstr<CharT, Allocator> unescape(const CharT* str, std::size_t length)
 {
-    in_str is(string);
-    return internal::unescape_impl<DestString>(is);
+    in_str is(str, length);
+    basic_out_stdstr<CharT, Allocator> os;
+
+    raw_reader<in_str> r(is);
+    r.read_string_to(os, RDFLAG_str_only);
+
+    return std::move(os).str();
 }
 
 // Unescape string.
-inline std::string unescape(const char* string)
+template <typename CharT, typename Allocator = std::allocator<CharT>>
+inline iutil::stdstr<CharT, Allocator> unescape(const CharT* str)
 {
-    return unescape_as<std::string>(string);
+    return unescape<CharT, Allocator>(str, std::char_traits<CharT>::length(str));
 }
 
-// Unescape to string of custom type.
-// DestString must be a std::basic_string.
-template <typename DestString>
-inline DestString unescape_as(const char* string, std::size_t length)
-{
-    in_str is(string, length);
-    return internal::unescape_impl<DestString>(is);
-}
-
+#ifdef SIJSON_HAS_STRING_VIEW
 // Unescape string.
-inline std::string unescape(const char* string, std::size_t length)
+template <typename CharT, typename Allocator = std::allocator<CharT>>
+inline iutil::stdstr<CharT, Allocator> unescape(std::basic_string_view<CharT> str)
 {
-    return unescape_as<std::string>(string, length);
-}
-
-#if SIJSON_HAS_STRING_VIEW
-// Unescape to string of custom type.
-// DestString must be a std::basic_string.
-template <typename DestString, typename SrcStringView,
-    iutil::enable_if_t<iutil::is_instance_of_basic_string_view<SrcStringView, char>::value> = 0>
-    inline DestString unescape_as(SrcStringView strview)
-{
-    in_str is(strview);
-    return internal::unescape_impl<DestString>(is);
-}
-
-// Unescape string.
-inline std::string unescape(std::string_view strview)
-{
-    return unescape_as<std::string>(strview);
+    return unescape<CharT, Allocator>(str.data(), str.length());
 }
 #endif
 
-// Unescape to string of custom type.
-// DestString must be a std::basic_string.
-template <typename DestString, typename SrcString,
-    iutil::enable_if_t<iutil::is_instance_of_basic_string<SrcString, char>::value> = 0>
-    inline DestString unescape_as(const SrcString& string)
-{
-    in_str is(string);
-    return internal::unescape_impl<DestString>(is);
-}
-
 // Unescape string.
-template <typename Allocator>
-inline std::basic_string<std::char_traits<char>, Allocator> unescape(const std::basic_string<std::char_traits<char>, Allocator>& string)
+template <typename CharT, typename Allocator>
+inline iutil::stdstr<CharT, Allocator> unescape(const iutil::stdstr<CharT, Allocator>& str)
 {
-    return unescape_as<std::basic_string<std::char_traits<char>, Allocator>>(string);
+    return unescape<CharT, Allocator>(str.data(), str.length());
 }
 
 // -------------------------------------------------------------------
-
 
 template <typename Istream, typename Ostream>
 class pretty_printer
@@ -364,17 +253,17 @@ public:
                 throw parse_error(r.in().ipos(), "invalid token");
 
             default:
-#ifdef __cpp_lib_unreachable
+#ifndef __cpp_lib_unreachable
+                SIJSON_ASSERT(false);
+                break;    
+#else                 
                 std::unreachable();
-#else
-                SIJSON_ASSERT(false); 
-                break;
 #endif
         }
     }
 
 private:
-    simple_reader<Istream> r;
+    raw_reader<Istream> r;
     raw_ascii_writer<Ostream> w;
     unsigned m_tab_size;
 };
