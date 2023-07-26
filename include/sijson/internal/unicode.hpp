@@ -17,9 +17,16 @@ namespace util {
 
 static constexpr char16_t UTF16_ERR = 0xFFFF;
 
+inline bool is_hexchar(char c)
+{
+    return
+        (c >= 0x30 && c <= 0x39) || // '0' to '9'
+        (c >= 0x41 && c <= 0x46) || // 'a' to 'f'
+        (c >= 0x61 && c <= 0x66);   // 'A' to 'F'
+}
 
 template <typename CharT>
-inline char16_t utf_unesc_unit(const CharT str[4], tag::io_contiguous)
+inline char16_t utf_unesc_unit(const CharT str[4], io_contiguous)
 {
     char16_t res = 0;
     for (int i = 0; i < 4; ++i)
@@ -40,7 +47,7 @@ inline char16_t utf_unesc_unit(const CharT str[4], tag::io_contiguous)
 }
 
 template <typename SiInput>
-inline char16_t utf_unesc_unit(SiInput& is, tag::io_basic)
+inline char16_t utf_unesc_unit(SiInput& is, io_basic)
 {
     char16_t res = 0;
     for (int i = 0; i < 4; ++i)
@@ -168,9 +175,11 @@ inline bool is_paired_unit(char16_t c)
     return c >= 0xd800u && c <= 0xdfffu;
 }
 
+
+
 // assumes leading \u was removed
 template <typename SiInput, typename SiOutput>
-inline bool utf_put_unescape(SiInput& is, SiOutput& os, tag::io_contiguous)
+inline bool put_utf_unescape(SiInput& is, SiOutput& os, io_contiguous)
 {
     using CharT = typename SiInput::char_type;
     
@@ -179,7 +188,7 @@ inline bool utf_put_unescape(SiInput& is, SiOutput& os, tag::io_contiguous)
 
     if (size >= 10)
     {
-        char16_t c1 = utf_unesc_unit(str, tag::io_contiguous{});
+        char16_t c1 = utf_unesc_unit(str, io_contiguous{});
         if (c1 == UTF16_ERR) return false;
 
         if (is_high_surrogate(c1))
@@ -187,7 +196,7 @@ inline bool utf_put_unescape(SiInput& is, SiOutput& os, tag::io_contiguous)
             if (str[4] != 0x5c || str[5] != 0x75) // "\u"
                 return false;
 
-            char16_t c2 = utf_unesc_unit(str + 6, tag::io_contiguous{});
+            char16_t c2 = utf_unesc_unit(str + 6, io_contiguous{});
             if (c2 == UTF16_ERR || !is_low_surrogate(c2))
                 return false;
 
@@ -204,7 +213,7 @@ inline bool utf_put_unescape(SiInput& is, SiOutput& os, tag::io_contiguous)
     }
     else if (size >= 4)
     {
-        char16_t c1 = utf_unesc_unit(str, tag::io_contiguous{});
+        char16_t c1 = utf_unesc_unit(str, io_contiguous{});
         if (c1 == UTF16_ERR || is_paired_unit(c1))
             return false;
 
@@ -217,11 +226,11 @@ inline bool utf_put_unescape(SiInput& is, SiOutput& os, tag::io_contiguous)
 
 // assumes leading \u was removed
 template <typename SiInput, typename SiOutput>
-inline bool utf_put_unescape(SiInput& is, SiOutput& os, tag::io_basic)
+inline bool put_utf_unescape(SiInput& is, SiOutput& os, io_basic)
 {
     using CharT = typename SiInput::char_type;
 
-    char16_t c1 = utf_unesc_unit(is, tag::io_basic{});
+    char16_t c1 = utf_unesc_unit(is, io_basic{});
     if (c1 == UTF16_ERR) return false;
 
     if (is_high_surrogate(c1))
@@ -229,7 +238,84 @@ inline bool utf_put_unescape(SiInput& is, SiOutput& os, tag::io_basic)
         if (!iutil::take(is, 0x5c) || !iutil::take(is, 0x75)) // "\u"
             return false;
 
-        char16_t c2 = utf_unesc_unit(is, tag::io_basic{});
+        char16_t c2 = utf_unesc_unit(is, io_basic{});
+        if (c2 == UTF16_ERR || !is_low_surrogate(c2))
+            return false;
+
+        utf16_convert<CharT>::put(os, { c1, c2 });
+        return true;
+    }
+    else if (!is_low_surrogate(c1)) // unpaired?
+    {
+        utf16_convert<CharT>::put(os, c1);
+        return true;
+    }
+    return false;
+}
+
+
+// assumes leading \u was removed
+template <typename SiInput, typename SiOutput>
+inline bool copy_escaped_utf(SiInput& is, SiOutput& os, io_contiguous)
+{
+    using CharT = typename SiInput::char_type;
+
+    auto* str = is.ipcur();
+    auto size = is.ipend() - is.ipcur();
+
+    if (size >= 10)
+    {
+        char16_t c1 = utf_unesc_unit(str, io_contiguous{});
+        if (c1 == UTF16_ERR) return false;
+
+        if (is_high_surrogate(c1))
+        {
+            if (str[4] != 0x5c || str[5] != 0x75) // "\u"
+                return false;
+
+            char16_t c2 = utf_unesc_unit(str + 6, io_contiguous{});
+            if (c2 == UTF16_ERR || !is_low_surrogate(c2))
+                return false;
+
+            utf16_convert<CharT>::put(os, { c1, c2 });
+            is.icommit(10);
+            return true;
+        }
+        else if (!is_low_surrogate(c1)) // unpaired?
+        {
+            utf16_convert<CharT>::put(os, c1);
+            is.icommit(4);
+            return true;
+        }
+    }
+    else if (size >= 4)
+    {
+        char16_t c1 = utf_unesc_unit(str, io_contiguous{});
+        if (c1 == UTF16_ERR || is_paired_unit(c1))
+            return false;
+
+        utf16_convert<CharT>::put(os, c1);
+        is.icommit(4);
+        return true;
+    }
+    return false;
+}
+
+// assumes leading \u was removed
+template <typename SiInput, typename SiOutput>
+inline bool copy_escaped_utf(SiInput& is, SiOutput& os, io_basic)
+{
+    using CharT = typename SiInput::char_type;
+
+    char16_t c1 = utf_unesc_unit(is, io_basic{});
+    if (c1 == UTF16_ERR) return false;
+
+    if (is_high_surrogate(c1))
+    {
+        if (!iutil::take(is, 0x5c) || !iutil::take(is, 0x75)) // "\u"
+            return false;
+
+        char16_t c2 = utf_unesc_unit(is, io_basic{});
         if (c2 == UTF16_ERR || !is_low_surrogate(c2))
             return false;
 

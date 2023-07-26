@@ -12,10 +12,8 @@
 #include <algorithm>
 #include <stdexcept>
 
-#include "core.hpp"
-#include "internal/util.hpp"
+#include "internal/core.hpp"
 #include "internal/file.hpp"
-#include "internal/buffers.hpp"
 
 namespace sijson {
 
@@ -25,7 +23,7 @@ class ifilestream
 public:
     using char_type = char;
     using size_type = std::size_t;
-    using input_kind = tag::io_buffered;
+    using input_kind = io_buffered;
 
 private:
     ifilestream(internal::file&& file, std::size_t bufsize) :
@@ -36,7 +34,7 @@ private:
         m_buf_eof(false),
         m_posn(0)
     {
-#if SIJSON_LOGIC_ERRORS
+#if SIJSON_USE_LOGIC_ERRORS
         if (bufsize == 0)
             throw std::invalid_argument(std::string(__func__) + ": Buffer size is 0.");
 #else
@@ -159,7 +157,7 @@ private:
 
 private:
     internal::file m_file;
-    internal::buffer<char> m_buf;
+    iutil::buffer<char> m_buf;
     char* m_buf_cur;
     char* m_buf_last; // always >= m_buf_cur
     bool m_buf_eof;
@@ -173,7 +171,7 @@ class ofilestream
 public:
     using char_type = char;
     using size_type = std::size_t;
-    using output_kind = tag::io_buffered;
+    using output_kind = io_buffered;
 
 private:
     ofilestream(internal::file&& file, std::size_t bufsize) :
@@ -182,7 +180,7 @@ private:
         m_buf_cur(m_buf.pbegin()),
         m_posn(0)
     {
-#if SIJSON_LOGIC_ERRORS
+#if SIJSON_USE_LOGIC_ERRORS
         if (bufsize == 0)
             throw std::invalid_argument(std::string(__func__) + ": Buffer size is 0.");
 #else
@@ -360,7 +358,7 @@ private:
 
 private:
     internal::file m_file;
-    internal::buffer<char> m_buf;
+    iutil::buffer<char> m_buf;
     char* m_buf_cur;
     size_type m_posn;
 };

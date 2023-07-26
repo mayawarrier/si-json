@@ -13,12 +13,11 @@
 #include <utility>
 #include <stdexcept>
 
-#include "internal/util.hpp"
 #include "internal/impl_rw.hpp"
 
-#include "core.hpp"
+#include "internal/core.hpp"
 #include "io_string.hpp"
-#include "simple_reader.hpp"
+#include "raw_reader.hpp"
 
 
 namespace sijson {
@@ -27,7 +26,7 @@ namespace sijson {
 // ASCII JSON reader.
 template <typename Istream,
     // Allocator type used for internal purposes/book-keeping.
-    typename Allocator = std::allocator<iutil::placeholder>
+    typename Allocator = std::allocator<iutil::empty>
 >
 class ascii_reader : public internal::rw_base<Allocator>
 {
@@ -45,7 +44,7 @@ public:
     // For eg. if you call start_object(), parent_node()
     // returns DOCNODE_object until the next call to 
     // end_object() or start_array().
-    inline doc_node_type parent_node(void) const { return this->m_nodes.top().type; }
+    inline docnode parent_node(void) const { return this->m_nodes.top().type; }
 
     // Start reading object.
     inline void start_object(void)
@@ -178,7 +177,7 @@ private:
     inline bool read_key_impl(const char* str, IsEndpFunc is_endp, std::size_t& out_pos);
 
 private:
-    simple_reader<Istream> m_rr;
+    raw_reader<Istream> m_rr;
 };
 
 

@@ -1,6 +1,6 @@
 
-#ifndef SIJSON_STRINGSTREAM_HPP
-#define SIJSON_STRINGSTREAM_HPP
+#ifndef SIJSON_IO_STRING_HPP
+#define SIJSON_IO_STRING_HPP
 
 #include <cstddef>
 #include <memory>
@@ -9,15 +9,11 @@
 #include <stdexcept>
 #include <type_traits>
 
-#if SIJSON_HAS_STRING_VIEW
+#ifdef SIJSON_HAS_STRING_VIEW
 #include <string_view>
 #endif
 
-#include "internal/config.hpp"
-#include "internal/util.hpp"
-#include "internal/buffers.hpp"
-
-#include "core.hpp"
+#include "internal/core.hpp"
 
 
 namespace sijson {
@@ -37,18 +33,18 @@ private:
 public:
     using char_type = CharT;
     using size_type = std::size_t;
-    using input_kind = tag::io_contiguous;
+    using input_kind = io_contiguous;
 
 public:
     basic_in_str(memspan<const char_type> src) :
-        m_begin(src.begin), m_cur(src.begin), m_end(src.end)
+        m_beg(src.begin), m_cur(src.begin), m_end(src.end)
     {
-#if SIJSON_LOGIC_ERRORS
+#if SIJSON_USE_LOGIC_ERRORS
         if (!src.begin || !src.end)
-            throw std::invalid_argument(SIJSON_SRCLOC + 
-                iutil::nameof<basic_in_str<CharT>>() + ": src is null.");
+            throw std::invalid_argument(
+                SIJSON_STRFY(sijson::basic_in_str<CharT>) ": src is null.");
 #else
-        assert(src.begin && src.end);
+        SIJSON_ASSERT(src.begin && src.end);
 #endif
     }
 
@@ -60,7 +56,7 @@ public:
         basic_in_str(src, Traits::length(src))
     {}
 
-#if SIJSON_HAS_STRING_VIEW
+#ifdef SIJSON_HAS_STRING_VIEW
     basic_in_str(std::basic_string_view<CharT, std::char_traits<CharT>> src) :
         basic_in_str(src.data(), src.size())
     {}
@@ -87,16 +83,16 @@ public:
     inline bool end(void) const noexcept { return m_cur == m_end; }
 
     // Jump to the beginning.
-    inline void rewind(void) noexcept { m_cur = m_begin; }
+    inline void rewind(void) noexcept { m_cur = m_beg; }
 
     // Get input position.
     inline size_type ipos(void) const noexcept
     {
-        return (size_type)(m_cur - m_begin);
+        return (size_type)(m_cur - m_beg);
     }
 
     // Pointer to the first char.
-    inline const char_type* ipbeg(void) const noexcept { return m_begin; }
+    inline const char_type* ipbeg(void) const noexcept { return m_beg; }
 
     // Pointer to the current char.
     inline const char_type* ipcur(void) const noexcept { return m_cur; }
@@ -110,7 +106,7 @@ public:
     inline void icommit(size_type count) noexcept { m_cur += count; }
 
 private:
-    const CharT* m_begin;
+    const CharT* m_beg;
     const CharT* m_cur;
     const CharT* m_end;
 };
@@ -128,31 +124,26 @@ private:
 template <
     typename CharT,
     typename Allocator = std::allocator<CharT>,
-    typename TNullTerminated = void
+    typename Options = void
 >
 class basic_out_str
 {
 private:
     using Traits = std::char_traits<CharT>;
-#if SIJSON_HAS_STRING_VIEW
-    using StringView = std::basic_string_view<CharT, Traits>;
-#endif
-    using StdString = std::basic_string<CharT, Traits, Allocator>;
 
 public:
     using char_type = CharT;
     using size_type = std::size_t;
     using allocator_type = Allocator;
-    using output_kind = tag::io_contiguous;
+    using output_kind = io_contiguous;
 
-    static constexpr bool is_null_terminated =
-        std::is_same<TNullTerminated, tag::null_terminated>::value;
+    static constexpr bool null_terminated = has_opt<Options, null_terminate>();
 
 public:
     basic_out_str(size_type capacity, 
         const Allocator& alloc = Allocator()
     ) :
-        m_buf{ capacity + is_null_terminated, alloc }
+        m_buf{ capacity + null_terminated, alloc }
     {
         init();
     }
@@ -176,7 +167,7 @@ public:
     {
         m_buf.reserve(m_buf.length() + 1);
 
-        if (is_null_terminated)
+        if (null_terminated)
         {
             Traits::assign(m_buf[m_buf.length() - 1], c);
             Traits::assign(m_buf[m_buf.length()], CharT());
@@ -193,7 +184,7 @@ public:
     {
         m_buf.reserve(m_buf.length() + count);
 
-        if (is_null_terminated)
+        if (null_terminated)
         {
             Traits::assign(m_buf.pend() - 1, count, c);
             Traits::assign(m_buf[m_buf.length() + count - 1], CharT());
@@ -210,7 +201,7 @@ public:
     {
         m_buf.reserve(m_buf.length() + count);
 
-        if (is_null_terminated)
+        if (null_terminated)
         {
             Traits::copy(m_buf.pend() - 1, str, count);
             Traits::assign(m_buf[m_buf.length() + count - 1], CharT());
@@ -226,19 +217,19 @@ public:
     // Get output position.
     inline size_type opos(void) const noexcept
     {
-        return m_buf.length() - is_null_terminated;
+        return m_buf.length() - null_terminated;
     }
 
-#if SIJSON_HAS_STRING_VIEW
+#ifdef SIJSON_HAS_STRING_VIEW
     // Get view of string.
-    inline StringView view(void) const noexcept 
+    inline std::basic_string_view<CharT> view(void) const noexcept 
     { 
         return { m_buf.pbegin(), opos() }; 
     }
 #endif
 
     // Copy string into a std::basic_string.
-    inline StdString stdstr(void) const
+    inline iutil::stdstr<CharT, Allocator> stdstr(void) const
     {
         return { m_buf.pbegin(), opos(), m_buf.get_allocator() };
     }
@@ -248,7 +239,7 @@ public:
     // has no effect (strong exception guarantee).
     inline void reserve(size_type new_capacity)
     {
-        m_buf.reserve(new_capacity + is_null_terminated);
+        m_buf.reserve(new_capacity + null_terminated);
     }
 
     // Pointer to the first char.
@@ -257,22 +248,22 @@ public:
     // Pointer to the first char.
     inline const char_type* opbeg(void) const noexcept { return m_buf.pbegin(); }
 
-    // Pointer to the next writable char.
-    inline char_type* opcur(void) noexcept { return m_buf.pend() - is_null_terminated; }
+    // Pointer to the current char.
+    inline char_type* opcur(void) noexcept { return m_buf.pend() - null_terminated; }
 
-    // Pointer to the next writable char.
-    inline const char_type* opcur(void) const noexcept { return m_buf.pend() - is_null_terminated; }
+    // Pointer to the current char.
+    inline const char_type* opcur(void) const noexcept { return m_buf.pend() - null_terminated; }
 
-    // Pointer to one past the last char of reserved memory.
+    // Pointer to the end of reserved memory.
     inline char_type* opend(void) noexcept 
     { 
-        return m_buf.pbegin() + m_buf.capacity() - is_null_terminated; 
+        return m_buf.pbegin() + m_buf.capacity() - null_terminated; 
     }
 
-    // Pointer to one past the last char of reserved memory.
+    // Pointer to the end of reserved memory.
     inline const char_type* opend(void) const noexcept 
     { 
-        return m_buf.pbegin() + m_buf.capacity() - is_null_terminated;
+        return m_buf.pbegin() + m_buf.capacity() - null_terminated;
     }
 
     // Commit the next count bytes (i.e. mark them as 'written to'.
@@ -280,7 +271,7 @@ public:
     // Increments the output position by count.
     inline void ocommit(size_type count) noexcept 
     {
-        if (is_null_terminated)
+        if (null_terminated)
             Traits::assign(m_buf[m_buf.length() + count - 1], CharT());
 
         m_buf.commit(count);
@@ -289,7 +280,7 @@ public:
 private:
     inline void init(void) noexcept
     {
-        if (is_null_terminated)
+        if (null_terminated)
         {
             // okay, min_capacity is at least 1
             m_buf[0] = CharT();
@@ -297,7 +288,7 @@ private:
         }
     }
 private:
-    internal::strbuffer<CharT, Traits, Allocator> m_buf;
+    iutil::strbuffer<CharT, Traits, Allocator> m_buf;
 };
 
 //
@@ -316,17 +307,14 @@ class basic_out_stdstr
 private:
     using Traits = std::char_traits<CharT>;
     using String = std::basic_string<CharT, Traits, Allocator>;
-#if SIJSON_HAS_STRING_VIEW
-    using StringView = std::basic_string_view<CharT, Traits>;
-#endif
 
 public:
     using char_type = CharT;
     using size_type = typename String::size_type;
     using allocator_type = Allocator;
-    using output_kind = tag::io_basic;
+    using output_kind = io_basic;
     
-    static constexpr bool is_null_terminated = true;
+    static constexpr bool null_terminated = true;
 
 public:
     basic_out_stdstr(size_type capacity,
@@ -368,9 +356,9 @@ public:
     // Get output position.
     inline size_type opos(void) const noexcept { return m_str.length(); }
 
-#if SIJSON_HAS_STRING_VIEW
+#ifdef SIJSON_HAS_STRING_VIEW
     // Get view of string.
-    inline StringView view(void) const noexcept { return m_str; }
+    inline std::basic_string_view<CharT> view(void) const noexcept { return m_str; }
 #endif
 
     // Get underlying string.
@@ -411,47 +399,38 @@ private:
 //
 template <
     typename CharT,
-    typename TThrowOnOverflow = void,
-    typename TNullTerminated = void  
+    typename Options = void
 >
 class basic_out_strspan
 {
 private:
     using Traits = std::char_traits<CharT>;
-#if SIJSON_HAS_STRING_VIEW
-    using StringView = std::basic_string_view<CharT, Traits>;
-#endif
-    using ThisType = basic_out_strspan<CharT, TThrowOnOverflow, TNullTerminated>;
 
 public:
     using char_type = CharT;
     using size_type = std::size_t;
-    using output_kind = tag::io_contiguous;
+    using output_kind = io_contiguous;
 
-    static constexpr bool is_null_terminated =
-        std::is_same<TNullTerminated, tag::null_terminated>::value;
-    static constexpr bool throws_on_overflow =
-        std::is_same<TThrowOnOverflow, tag::throw_on_overflow>::value;
+    static constexpr bool null_terminated = has_opt<Options, null_terminate>();
+    static constexpr bool throws_on_overflow = has_opt<Options, throw_on_overflow>();
 
 private:
-    using throw_on_overflow_t = std::integral_constant<bool, throws_on_overflow>;
+    using ThrowOnOverflowBool = std::integral_constant<bool, throws_on_overflow>;
 
 public:
     basic_out_strspan(memspan<CharT> dest) :
         m_span(dest), m_cur(dest.begin)
     {
-#if SIJSON_LOGIC_ERRORS
+#if SIJSON_USE_LOGIC_ERRORS
         if (!dest.begin || !dest.end)
-            throw std::invalid_argument(SIJSON_SRCLOC +
-                iutil::nameof<ThisType>() + ": dest is null.");
+            throw std::invalid_argument(SIJSON_STRFY(basic_out_strspan) ": dest is null.");
 
-        if (is_null_terminated && dest.size() == 0)
-            throw std::invalid_argument(SIJSON_SRCLOC +
-                iutil::nameof<ThisType>() + ": dest is too small.");
+        if (null_terminated && dest.size() == 0)
+            throw std::invalid_argument(SIJSON_STRFY(basic_out_strspan) ": dest is too small.");
 #else
-        assert(dest.begin && dest.end && (!is_null_terminated || dest.size() > 0));
+        SIJSON_ASSERT(dest.begin && dest.end && (!null_terminated || dest.size() > 0));
 #endif
-        if (is_null_terminated)
+        if (null_terminated)
             *dest.begin = CharT();
     }
 
@@ -476,10 +455,10 @@ public:
     inline void put(char_type c) 
         noexcept(!throws_on_overflow)
     {
-        check_avail(1, throw_on_overflow_t{});
+        check_avail(1, ThrowOnOverflowBool{});
 
         Traits::assign(*m_cur, c);
-        if (is_null_terminated)
+        if (null_terminated)
             Traits::assign(m_cur[1], CharT());
         m_cur++;
     }
@@ -490,10 +469,10 @@ public:
     inline void put_f(char_type c, size_type count)
         noexcept(!throws_on_overflow)
     {
-        check_avail(count, throw_on_overflow_t{});
+        check_avail(count, ThrowOnOverflowBool{});
 
         Traits::assign(m_cur, count, c);
-        if (is_null_terminated)
+        if (null_terminated)
             Traits::assign(m_cur[count], CharT());
         m_cur += count;
     }
@@ -504,10 +483,10 @@ public:
     inline void put_n(const char_type* str, std::size_t count)
         noexcept(!throws_on_overflow)
     {
-        check_avail(count, throw_on_overflow_t{});
+        check_avail(count, ThrowOnOverflowBool{});
 
         Traits::copy(m_cur, str, count);
-        if (is_null_terminated)
+        if (null_terminated)
             Traits::assign(m_cur[count], CharT());
         m_cur += count;
     }
@@ -524,23 +503,30 @@ public:
     // Number of bytes available for writing.
     inline std::size_t avail(void) const noexcept
     {
-        return (std::size_t)(m_span.end - m_cur) - is_null_terminated;
+        return (std::size_t)(m_span.end - m_cur) - null_terminated;
     }
 
-#if SIJSON_HAS_STRING_VIEW
+#ifdef SIJSON_HAS_STRING_VIEW
     // Get view of underlying string.
-    inline StringView view(void) const noexcept 
+    inline std::basic_string_view<CharT> view(void) const noexcept
     {
         return { m_span.begin, opos() }; 
     }
 #endif
+
+    // Copy string into a std::basic_string.
+    template <typename Allocator = std::allocator<CharT>>
+    inline iutil::stdstr<CharT, Allocator> stdstr(void) const
+    {
+        return { m_span.begin, opos() };
+    }
 
     // Throws if ThrowOnOverflow is true and the
     // span is less than new_capacity in size.
     inline void reserve(size_type new_capacity) const 
         noexcept(!throws_on_overflow)
     {
-        do_reserve(new_capacity, throw_on_overflow_t{});
+        do_reserve(new_capacity, ThrowOnOverflowBool{});
     }
 
     // Pointer to the first char.
@@ -556,17 +542,17 @@ public:
     inline const char_type* opcur(void) const noexcept { return m_cur; }
 
     // Pointer to one past the last char of writable memory.
-    inline char_type* opend(void) noexcept { return m_span.end - is_null_terminated; }
+    inline char_type* opend(void) noexcept { return m_span.end - null_terminated; }
 
     // Pointer to one past the last character of writable memory.
-    inline const char_type* opend(void) const noexcept { return m_span.end - is_null_terminated; }
+    inline const char_type* opend(void) const noexcept { return m_span.end - null_terminated; }
 
     // Commit the next count bytes (i.e. mark them as 'written to'.
     // Required only if you use opbeg(), opcur() or opend() to write data).
     // Increments the output position by count.
     inline void ocommit(size_type count) noexcept
     {
-        if (is_null_terminated)
+        if (null_terminated)
             Traits::assign(m_cur[count], CharT());
 
         m_cur += count;
@@ -575,15 +561,17 @@ public:
 private:
     inline void do_reserve(size_type new_cap, std::true_type) const
     {
-        if (new_cap > m_span.size() - is_null_terminated)
-            throw std::runtime_error(SIJSON_SRCLOC "Output exhausted");
+        if (new_cap > m_span.size() - null_terminated)
+            throw std::runtime_error(
+                SIJSON_STRFY(sijson::basic_out_strspan) ": Output exhausted");
     }
     inline void do_reserve(size_type, std::false_type) const noexcept {}
 
     inline void check_avail(std::size_t count, std::true_type) const
     {
         if (count > avail())
-            throw std::runtime_error(SIJSON_SRCLOC "Output exhausted");
+            throw std::runtime_error(
+                SIJSON_STRFY(sijson::basic_out_strspan) ": Output exhausted");
     }
     inline void check_avail(std::size_t, std::false_type) const noexcept { }
 
@@ -598,50 +586,50 @@ using in_wstr = basic_in_str<wchar_t>;
 using in_u16str = basic_in_str<char16_t>;
 using in_u32str = basic_in_str<char32_t>;
 
-using out_str = basic_out_str<char, std::allocator<char>, void>;
-using out_wstr = basic_out_str<wchar_t, std::allocator<wchar_t>, void>;
-using out_u16str = basic_out_str<char16_t, std::allocator<char16_t>, void>;
-using out_u32str = basic_out_str<char32_t, std::allocator<char32_t>, void>;
+using out_str = basic_out_str<char, std::allocator<char>>;
+using out_wstr = basic_out_str<wchar_t, std::allocator<wchar_t>>;
+using out_u16str = basic_out_str<char16_t, std::allocator<char16_t>>;
+using out_u32str = basic_out_str<char32_t, std::allocator<char32_t>>;
 
-using out_cstr = basic_out_str<char, std::allocator<char>, tag::null_terminated>;
-using out_wcstr = basic_out_str<wchar_t, std::allocator<wchar_t>, tag::null_terminated>;
-using out_u16cstr = basic_out_str<char16_t, std::allocator<char16_t>, tag::null_terminated>;
-using out_u32cstr = basic_out_str<char32_t, std::allocator<char32_t>, tag::null_terminated>;
+using out_cstr = basic_out_str<char, std::allocator<char>, null_terminate>;
+using out_wcstr = basic_out_str<wchar_t, std::allocator<wchar_t>, null_terminate>;
+using out_u16cstr = basic_out_str<char16_t, std::allocator<char16_t>, null_terminate>;
+using out_u32cstr = basic_out_str<char32_t, std::allocator<char32_t>, null_terminate>;
 
 using out_stdstr = basic_out_stdstr<char, std::allocator<char>>;
 using out_wstdstr = basic_out_stdstr<wchar_t, std::allocator<wchar_t>>;
 using out_u16stdstr = basic_out_stdstr<char16_t, std::allocator<char16_t>>;
 using out_u32stdstr = basic_out_stdstr<char32_t, std::allocator<char32_t>>;
 
-using out_strspan = basic_out_strspan<char, void, void>;
-using out_wstrspan = basic_out_strspan<wchar_t, void, void>;
-using out_u16strspan = basic_out_strspan<char16_t, void, void>;
-using out_u32strspan = basic_out_strspan<char32_t, void, void>;
+using out_strspan = basic_out_strspan<char>;
+using out_wstrspan = basic_out_strspan<wchar_t>;
+using out_u16strspan = basic_out_strspan<char16_t>;
+using out_u32strspan = basic_out_strspan<char32_t>;
 
-using out_cstrspan = basic_out_strspan<char, void, tag::null_terminated>;
-using out_wcstrspan = basic_out_strspan<wchar_t, void, tag::null_terminated>;
-using out_u16cstrspan = basic_out_strspan<char16_t, void, tag::null_terminated>;
-using out_u32cstrspan = basic_out_strspan<char32_t, void, tag::null_terminated>;
+using out_cstrspan = basic_out_strspan<char, null_terminate>;
+using out_wcstrspan = basic_out_strspan<wchar_t, null_terminate>;
+using out_u16cstrspan = basic_out_strspan<char16_t, null_terminate>;
+using out_u32cstrspan = basic_out_strspan<char32_t, null_terminate>;
 
-using out_strspan_s = basic_out_strspan<char, tag::throw_on_overflow, void>;
-using out_wstrspan_s = basic_out_strspan<wchar_t, tag::throw_on_overflow, void>;
-using out_u16strspan_s = basic_out_strspan<char16_t, tag::throw_on_overflow, void>;
-using out_u32strspan_s = basic_out_strspan<char32_t, tag::throw_on_overflow, void>;
+using out_strspan_s = basic_out_strspan<char, throw_on_overflow>;
+using out_wstrspan_s = basic_out_strspan<wchar_t, throw_on_overflow>;
+using out_u16strspan_s = basic_out_strspan<char16_t, throw_on_overflow>;
+using out_u32strspan_s = basic_out_strspan<char32_t, throw_on_overflow>;
 
-using out_cstrspan_s = basic_out_strspan<char, tag::throw_on_overflow, tag::null_terminated>;
-using out_wcstrspan_s = basic_out_strspan<wchar_t, tag::throw_on_overflow, tag::null_terminated>;
-using out_u16cstrspan_s = basic_out_strspan<char16_t, tag::throw_on_overflow, tag::null_terminated>;
-using out_u32cstrspan_s = basic_out_strspan<char32_t, tag::throw_on_overflow, tag::null_terminated>;
+using out_cstrspan_s = basic_out_strspan<char, options<throw_on_overflow, null_terminate>>;
+using out_wcstrspan_s = basic_out_strspan<wchar_t, options<throw_on_overflow, null_terminate>>;
+using out_u16cstrspan_s = basic_out_strspan<char16_t, options<throw_on_overflow, null_terminate>>;
+using out_u32cstrspan_s = basic_out_strspan<char32_t, options<throw_on_overflow, null_terminate>>;
 
 #if __cpp_char8_t
 using in_u8str = basic_in_str<char8_t>;
-using out_u8str = basic_out_str<char8_t, std::allocator<char8_t>, void>;
-using out_u8cstr = basic_out_str<char8_t, std::allocator<char8_t>, tag::null_terminated>;
+using out_u8str = basic_out_str<char8_t, std::allocator<char8_t>>;
+using out_u8cstr = basic_out_str<char8_t, std::allocator<char8_t>, null_terminate>;
 using out_u8stdstr = basic_out_stdstr<char8_t, std::allocator<char8_t>>;
-using out_u8strspan = basic_out_strspan<char8_t, void, void>;
-using out_u8cstrspan = basic_out_strspan<char8_t, void, tag::null_terminated>;
-using out_u8strspan_s = basic_out_strspan<char8_t, tag::throw_on_overflow, tag::null_terminated>;
-using out_u8cstrspan_s = basic_out_strspan<char8_t, tag::throw_on_overflow, tag::null_terminated>;
+using out_u8strspan = basic_out_strspan<char8_t>;
+using out_u8cstrspan = basic_out_strspan<char8_t, null_terminate>;
+using out_u8strspan_s = basic_out_strspan<char8_t, throw_on_overflow>;
+using out_u8cstrspan_s = basic_out_strspan<char8_t, options<throw_on_overflow, null_terminate>>;
 #endif
 
 }
