@@ -30,13 +30,13 @@ namespace sijson {
 // - input_kind: an I/O tag type that is at least io_basic
 //
 template <typename T, typename CharT>
-using is_basic_input = iconcepts::is_basic_input<T, CharT>;
+using is_basic_input = iutil::is_basic_input<T, CharT>;
 
 //
 // Same as is_basic_input<T, CharT>, but all functions are noexcept.
 //
 template <typename T, typename CharT>
-using is_nothrow_basic_input = iconcepts::is_nothrow_basic_input<T, CharT>;
+using is_nothrow_basic_input = iutil::is_nothrow_basic_input<T, CharT>;
 
 
 //
@@ -60,13 +60,13 @@ using is_nothrow_basic_input = iconcepts::is_nothrow_basic_input<T, CharT>;
 // - output_kind: an I/O tag type that is at least io_basic
 //
 template <typename T, typename CharT>
-using is_basic_output = iconcepts::is_basic_output<T, CharT>;
+using is_basic_output = iutil::is_basic_output<T, CharT>;
 
 //
 // Same as is_basic_output<T, CharT>, but all functions are noexcept.
 //
 template <typename T, typename CharT>
-using is_nothrow_basic_output = iconcepts::is_nothrow_basic_output<T, CharT>;
+using is_nothrow_basic_output = iutil::is_nothrow_basic_output<T, CharT>;
 
 
 //
@@ -97,13 +97,13 @@ using is_nothrow_basic_output = iconcepts::is_nothrow_basic_output<T, CharT>;
 //   const member functions.
 //
 template <typename T, typename CharT, typename = void>
-using is_contiguous_input = iconcepts::is_contiguous_input<T, CharT>;
+using is_contiguous_input = iutil::is_contiguous_input<T, CharT>;
 
 //
 // Same as is_contiguous_input<T, CharT>, but all functions are noexcept.
 //
 template <typename T, typename CharT, typename = void>
-using is_nothrow_contiguous_input = iconcepts::is_nothrow_contiguous_input<T, CharT>;
+using is_nothrow_contiguous_input = iutil::is_nothrow_contiguous_input<T, CharT>;
 
 
 //
@@ -138,26 +138,26 @@ using is_nothrow_contiguous_input = iconcepts::is_nothrow_contiguous_input<T, Ch
 //   or any const member functions.
 //
 template <typename T, typename CharT, typename = void>
-using is_contiguous_output = iconcepts::is_contiguous_output<T, CharT>;
+using is_contiguous_output = iutil::is_contiguous_output<T, CharT>;
 
 //
 // Same as is_contiguous_output<T, CharT>, but all functions are noexcept.
 //
 template <typename T, typename CharT>
-using is_nothrow_contiguous_output = iconcepts::is_nothrow_contiguous_output<T, CharT>;
+using is_nothrow_contiguous_output = iutil::is_nothrow_contiguous_output<T, CharT>;
 
 
 //
 // Checks if all input functions are noexcept (for T's input_kind).
 //
 template <typename T, typename CharT>
-using is_nothrow_input = iconcepts::is_nothrow_input<T, CharT>;
+using is_nothrow_input = iutil::is_nothrow_input<T, CharT>;
 
 //
 // Checks if all output functions are noexcept (for T's output_kind).
 //
 template <typename T, typename CharT>
-using is_nothrow_output = iconcepts::is_nothrow_output<T, CharT>;
+using is_nothrow_output = iutil::is_nothrow_output<T, CharT>;
 
 }
 

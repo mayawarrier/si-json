@@ -1,3 +1,0 @@
-[submodule "ext/fast_float"]
-	path = ext/fast_float
-	url = https://github.com/mayawarrier/fast_float

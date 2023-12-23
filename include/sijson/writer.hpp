@@ -383,16 +383,16 @@ inline void raw_writer<Encoding, Ostream>::write_number_impl(JsonOstream& stream
     switch (value.type())
     {
         case NUMTYPE_float:
-            write_floating_impl(stream, value.get_unsafe<float>());
+            write_floating_impl(stream, value.get<float>());
             break;
         case NUMTYPE_double:
-            write_floating_impl(stream, value.get_unsafe<double>());
+            write_floating_impl(stream, value.get<double>());
             break;
-        case NUMTYPE_integer:
-            write_int_impl(stream, value.get_unsafe<std::intmax_t>());
+        case NUMTYPE_intgr:
+            write_int_impl(stream, value.get<std::int64_t>());
             break;
-        case NUMTYPE_uinteger:
-            write_uint_impl(stream, value.get_unsafe<std::uintmax_t>());
+        case NUMTYPE_uintgr:
+            write_uint_impl(stream, value.get<std::uint64_t>());
             break;
 
         default:

@@ -11,11 +11,7 @@
 #include <memory>
 #include <stdexcept>
 
-
 #include "internal/unicode.hpp"
-
-
-
 #include "internal/core.hpp"
 
 #include "concepts.hpp"
@@ -24,6 +20,10 @@
 
 #if SIJSON_USE_FASTFLOAT
 #include "fast_float/fast_float.h"
+#endif
+
+#if SIJSON_SIMD
+#include <intrin.h>
 #endif
 
 namespace sijson {
@@ -39,7 +39,11 @@ enum rdflag : unsigned
 //
 // Low-level JSON reader.
 // 
-// - Input is an object that models BasicInput or better. See sijson::is_basic_input.
+// Input type can be:
+// - std input stream (std::stringstream, std::filestream, etc),
+// - sijson input object (in_str, in_file, etc),
+// - custom input type (see concepts.hpp).
+// 
 // - Options is an sijson::options that may contain:
 //   * OPT_no_whitespace: assume input contains no whitespace.
 // 
@@ -51,23 +55,27 @@ template <typename Input, typename Options = void>
 class raw_reader
 {
 private:
-    using RdrInput = to_si_input_t<Input>;
-    using InputKind = typename RdrInput::input_kind;
-    using InputSize = typename RdrInput::size_type;
-    using CharT = typename RdrInput::char_type;
+    using MyInput = to_si_input_t<Input>;
+    using InputKind = typename MyInput::input_kind;
+    using InputSize = typename MyInput::size_type;
+    using CharT = typename MyInput::char_type;
     using ChTraits = std::char_traits<CharT>;
 
     template <typename Output>
     using IsNoThrowOutput = is_nothrow_output<to_si_output_t<iutil::remove_cvref_t<Output>>, CharT>;
-    static constexpr bool IsNoThrowInput = is_nothrow_input<RdrInput, CharT>::value;
-    static constexpr bool IsNoThrowContiguousInput = is_nothrow_contiguous_input<RdrInput, CharT>::value;
+
+    static constexpr bool IsNoThrowInput = is_nothrow_input<MyInput, CharT>::value;
+    static constexpr bool IsNoThrowContiguousInput = is_nothrow_contiguous_input<MyInput, CharT>::value;
+    
+    // at least basic input
+    static_assert(is_basic_input<MyInput, CharT>::value, "Incompatible input type.");
 
 public:
     using char_type = CharT;
-    using input_type = RdrInput;
+    using input_type = MyInput;
 
     // True if reader assumes no whitespace is present in input.
-    static constexpr bool assume_no_ws = has_opt<Options, no_whitespace>();
+    static constexpr bool assumes_no_ws() { return has_opt<Options, no_whitespace>(); }
 
 public:
     raw_reader(Input& in)
@@ -88,7 +96,7 @@ public:
     // Get current token.
     inline sijson::token token(void) noexcept(IsNoThrowInput)
     {
-        bool eof = assume_no_ws ? m_is.end() : !skip_ws();
+        bool eof = assumes_no_ws() ? m_is.end() : !skip_ws();
         if (eof) return TOKEN_eof;
 
         switch (m_is.peek())
@@ -186,7 +194,7 @@ public:
     // Throws parse_error on failure.
     inline bool read_bool(void)
     {
-        if (!assume_no_ws)
+        if (!assumes_no_ws())
             skip_ws();
 
         int value = do_read_bool(m_is);
@@ -210,7 +218,7 @@ public:
     inline std::basic_string<CharT, ChTraits, StrAllocator> read_string(void)
     {
         basic_out_stdstr<CharT, StrAllocator> os;
-        if (!assume_no_ws)
+        if (!assumes_no_ws())
             skip_ws();
 
         // avoid try_read_string() (skip string initialization)
@@ -262,7 +270,7 @@ public:
     inline error try_read_floating(T& out_value, const unsigned rdflags = RDFLAG_none)
         noexcept(IsNoThrowInput)
     {
-        if (!assume_no_ws)
+        if (!assumes_no_ws())
             skip_ws();
 
         switch (rdflags)
@@ -280,7 +288,7 @@ public:
     inline error try_read_number(number& out_num, const unsigned flags = RDFLAG_none)
         noexcept(IsNoThrowInput)
     {
-        if (!assume_no_ws)
+        if (!assumes_no_ws())
             skip_ws();
 
         switch (flags)
@@ -298,7 +306,7 @@ public:
     inline error try_read_bool(bool& out_bool)
         noexcept(IsNoThrowInput)
     {
-        if (!assume_no_ws)
+        if (!assumes_no_ws())
             skip_ws();
 
         int value = do_read_bool(m_is);
@@ -313,7 +321,7 @@ public:
     inline error try_read_null(void)
         noexcept(IsNoThrowInput)
     {
-        if (!assume_no_ws)
+        if (!assumes_no_ws())
             skip_ws();
 
         return try_consume_str(m_is, iutil::strings<CharT>::null_str) ?
@@ -325,7 +333,7 @@ public:
     inline error try_read_string(std::basic_string<CharT, ChTraits, StrAllocator>& out_str)
     {
         basic_out_stdstr<CharT, StrAllocator> os;
-        if (!assume_no_ws)
+        if (!assumes_no_ws())
             skip_ws();
 
         error e = read_str(m_is, os);
@@ -349,7 +357,7 @@ public:
 
         wrap_output_t<Output> os(out);
 
-        if (!assume_no_ws)
+        if (!assumes_no_ws())
             skip_ws();
 
         switch (rdflags)
@@ -376,7 +384,7 @@ public:
 
 private:
     template <typename UintT>
-    static inline bool do_read_uintg(RdrInput& is, UintT& out_value)
+    static inline bool do_read_uintg(MyInput& is, UintT& out_value)
     {
         if (is.end() || !iutil::is_digit(is.peek()) || is.peek() == CharT('-'))
             return false;
@@ -394,7 +402,7 @@ private:
     }
 
     template <typename IntT, IntT Lbound, IntT Ubound>
-    static inline bool do_read_intg(RdrInput& is, IntT& out_value)
+    static inline bool do_read_intg(MyInput& is, IntT& out_value)
     {
         bool neg = is.peek() == CharT('-');
         if (neg) is.take();
@@ -412,15 +420,16 @@ private:
         return true;
     }
 
-    // Parse all chars matching a JSON number pattern.
-    // Does not check if number is within range! Truncates to output CharT. 
-    template <bool AllowInfNan = false, bool Validate = true, typename SiOutput>
-    static SIJSON_ALWAYS_INLINE error read_numstr(RdrInput& is, SiOutput& buf)
+    // Read all chars matching a JSON number pattern.
+    // This is slow! Use fastfloat instead whenever possible.
+    // Does not check if number is within range!
+    template <bool AllowInfNan = false, bool Validate = true, typename Output>
+    static SIJSON_ALWAYS_INLINE error read_numstr(MyInput& is, Output& buf) 
     {
-        using OutCharT = typename SiOutput::char_type;
+        using OutCharT = typename Output::char_type;
 
         if (is.end())
-            return ERROR_invalid_arg;
+            return ERROR_invalid_num;
 
         if (AllowInfNan)
             throw parse_error(is.ipos(), "Unimplemented");
@@ -433,7 +442,7 @@ private:
         {
             buf.put(OutCharT(is.take()));
             if (!is.end() && iutil::is_digit(is.peek()))
-                return ERROR_invalid_arg;
+                return ERROR_invalid_num;
         }
 
         while (!is.end() && iutil::is_digit(is.peek()))
@@ -441,7 +450,7 @@ private:
 
         // at least one digit on left
         if (Validate && (neg ? buf.opos() == 1 : buf.opos() == 0))
-            return ERROR_invalid_arg;
+            return ERROR_invalid_num;
 
         if (is.peek() == CharT('.'))
         {
@@ -453,7 +462,7 @@ private:
 
             // at least one digit on right
             if (Validate && buf.opos() == old_len)
-                return ERROR_invalid_arg;
+                return ERROR_invalid_num;
         }
 
         if (is.peek() == CharT('e') || is.peek() == CharT('E'))
@@ -473,7 +482,7 @@ private:
     // read_fp() stdlib fallback
 #if SIJSON_HAS_STRTOFP_L
     template <bool AllowInfNan, typename T>
-    static inline error read_fp_fallback(RdrInput& is, T& out_val) noexcept
+    static inline error read_fp_slow(MyInput& is, T& out_val) 
     {
         out_cstrspan buf(iutil::TLB_FP<>::BUF);
         error e = read_numstr<AllowInfNan>(is, buf);
@@ -489,20 +498,20 @@ private:
             switch (Errno)
             {
             case ERANGE: return ERROR_out_of_range;
-            case EINVAL: return ERROR_invalid_arg;
-            default: return ERROR_invalid_arg;
+            case EINVAL: return ERROR_invalid_num;
+            default: return ERROR_invalid_num;
             }
         }
 
-        SIJSON_ASSERT(eptr == end);
+        SIJSON_ASSERT(eptr == buf.opend());
         (void)eptr; // maybe unused
         return ERROR_none;
     }
 #else
     template <bool AllowInfNan, typename T>
-    static inline error read_fp_fallback(RdrInput& is, T& out_val) noexcept
+    static inline error read_fp_slow(MyInput& is, T& out_val) 
     {
-        out_cstrspan buf(iutil::TLB_FP<>::BUF);
+        out_strspan buf(iutil::TLB_FP<>::BUF);
         error e = read_numstr<AllowInfNan>(is, buf);
         if (e) return e;
 
@@ -512,7 +521,7 @@ private:
         sis >> out_val;
 
         if (sis.fail())
-            return ERROR_invalid_arg;
+            return ERROR_invalid_num;
 
         SIJSON_ASSERT(sbuf.gptr() == sbuf.egptr());
         return ERROR_none;
@@ -527,8 +536,8 @@ private:
             fast_float::chars_format::general, fast_float::parse_rules::json_rules, '.', AllowInfNan);
     }
 
-    template <bool AllowInfNan, typename MyInput, typename T>
-    static SIJSON_CONSTEXPR20 error ff_from_chars(MyInput& is, T& out_val)
+    template <bool AllowInfNan, typename CgInput, typename T>
+    static SIJSON_CONSTEXPR20 error ff_from_chars(CgInput& is, T& out_val)
     {
         auto res = fast_float::from_chars_advanced(is.ipcur(), is.ipend(), out_val, ffopts<AllowInfNan>());
         if (res.ec == std::errc())
@@ -539,12 +548,12 @@ private:
         else if (res.ec == std::errc::result_out_of_range)
             return ERROR_out_of_range;
         else
-            return ERROR_invalid_arg;
+            return ERROR_invalid_num;
     }
 
     // True if T is supported by fast_float.
     template <typename T>
-    static constexpr bool is_fp_fast()
+    static constexpr bool is_ff_type()
     {
         return
             std::is_same<T, float>::value || std::is_same<T, double>::value ||
@@ -552,10 +561,10 @@ private:
                 std::numeric_limits<double>::digits == std::numeric_limits<long double>::digits);
     }
 
-    template <bool AllowInfNan, typename MyInput, typename T>
-    static SIJSON_CONSTEXPR20 error read_fp_fast(MyInput& is, T& out_val)
+    template <bool AllowInfNan, typename CgInput, typename T>
+    static SIJSON_CONSTEXPR20 error read_fp_fast(CgInput& is, T& out_val)
     {
-        static_assert(is_fp_fast<T>(), "");
+        static_assert(is_ff_type<T>(), "");
 
         if (std::is_same<T, float>::value || std::is_same<T, double>::value)
             return ff_from_chars<AllowInfNan>(is, out_val);
@@ -567,11 +576,31 @@ private:
             return e;
         }
     }
+#endif
+    // read_fp_fast() -> input is contiguous and type is supported by fast float
+    // read_fp_slow() -> everything else
 
-    template <bool AllowInfNan, typename T>
-    static inline error read_fp_slow(RdrInput& is, T& out_val)
+    template <
+        bool AllowInfNan = false, typename IOKind = InputKind, typename T,
+        iutil::enable_if_t<std::is_same<IOKind, io_contiguous>::value> = 0
+    >
+    static inline error read_fp(MyInput& is, T& out_val)
     {
-        if (is_fp_fast<T>())
+#if SIJSON_USE_FASTFLOAT
+        if (is_ff_type<T>())
+            return read_fp_fast<AllowInfNan>(is, out_val);
+#endif
+        return read_fp_slow<AllowInfNan>(is, out_val);
+    }
+
+    template <
+        bool AllowInfNan = false, typename IOKind = InputKind, typename T,
+        iutil::enable_if_t<!std::is_same<IOKind, io_contiguous>::value> = 0
+    >
+    static inline error read_fp(MyInput& is, T& out_val)
+    {
+#if SIJSON_USE_FASTFLOAT
+        if (is_ff_type<T>())
         {
             out_strspan buf(iutil::TLB_FP<>::BUF);
             error e = read_numstr<AllowInfNan, false>(is, buf);
@@ -580,38 +609,9 @@ private:
             in_str ibuf(outdata(buf));
             return read_fp_fast<AllowInfNan>(ibuf, out_val);
         }
-        
-        return read_fp_fallback<AllowInfNan>(is, out_val);
-    }
-#else
-#define read_fp_slow read_fp_fallback
-#endif
-
-    // read_fp_fast() -> input is contiguous and type is supported by fast float
-    // read_fp_slow() -> everything else
-
-    template <
-        bool AllowInfNan = false, typename MyInputKind = InputKind, typename T,
-        iutil::enable_if_t<std::is_same<MyInputKind, io_contiguous>::value> = 0
-    >
-    static inline error read_fp(RdrInput& is, T& out_val)
-    {
-#if SIJSON_USE_FASTFLOAT
-        if (is_fp_fast<T>())
-            return read_fp_fast<AllowInfNan>(is, out_val);
 #endif
         return read_fp_slow<AllowInfNan>(is, out_val);
     }
-
-    template <
-        bool AllowInfNan = false, typename MyInputKind = InputKind, typename T,
-        iutil::enable_if_t<!std::is_same<MyInputKind, io_contiguous>::value> = 0
-    >
-    static inline error read_fp(RdrInput& is, T& out_val)
-    {
-        return read_fp_slow<AllowInfNan>(is, out_val);
-    }
-
 
     static SIJSON_ALWAYS_INLINE bool set_num_if_int64(
         const fast_float::parsed_number_string<CharT>& ps, number& out_value)
@@ -636,13 +636,84 @@ private:
         }
         return false;
     }
+    
+//    static inline bool scan_is_int(MyInput& is)
+//    {
+//        static_assert(std::is_same<typename MyInput::input_kind, io_contiguous>::value, "");
+//
+//        if (inrem(is) >= 20) // max uint64 digits 
+//        {
+//#if SIJSON_SSE2
+//            if (sizeof(CharT) == 1)
+//            {
+//                
+//                __m128i d1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(is.ipcur());
+//                std::uint_least32_t d2;
+//                std::memcpy(&d2, is.ipcur(), 4);
+//
+//            }
+//            
+//#endif
+//        }
+//    }
+
+#ifdef SIJSON_USE_FASTFLOAT
+    template <bool AllowInfNan, typename CgInput>
+    static SIJSON_CONSTEXPR20 error read_num_fast(CgInput& is, number& out_val)
+    {
+        const CharT* p = is.ipcur();
+        const CharT *const pend = is.ipend();
+
+        bool neg = (*p == CharT('-'));
+        if (neg) ++p;
+
+        std::uint64_t i = 0;
+        const CharT* const pbeg = p;
+        while (p != pend && iutil::is_digit(*p))
+        {
+            i = 10 * i + std::uint64_t(*p - CharT('0'));
+            ++p;
+        }
+        auto nidigits = p - pbeg;
+
+        auto lc = iutil::to_lower(*p);
+        if ((*p == CharT('.') || *p == CharT('e') || *p == CharT('E')) ||
+            // possible inf/nan?
+            (AllowInfNan && nidigits == 0 && (lc == CharT('i') || lc == CharT('n'))) ||
+            // too small for int64?
+            (neg && (nidigits > 19 || i > 9223372036854775808ULL)) ||
+            // too large for uint64?
+            (!neg && (nidigits > 20 || (nidigits == 20 && i < 10000000000000000000ULL))))
+        {
+            // start again, this is floating-point.
+            // unfortunately this re-parses integer part, for now
+            double val;
+            error e = read_fp_fast<AllowInfNan>(is, val);
+            out_val = val;
+            return e;
+        }      
+        if (nidigits == 0)
+            return ERROR_invalid_num;
+    
+        out_val = neg ? iutil::uneg<std::int64_t>(i) : i;
+        is.icommit(nidigits + neg);
+        return ERROR_none;
+    }
+#endif
+
+    template <bool AllowInfNan>
+    static SIJSON_CONSTEXPR20 error read_num_slow(MyInput& is, number& out_val)
+    {
+        
+    }
 
     template <
-        bool AllowInfNan = false, typename MyInputKind = InputKind,
-        iutil::enable_if_t<std::is_same<MyInputKind, io_contiguous>::value> = 0
+        bool AllowInfNan = false, typename IOKind = InputKind,
+        iutil::enable_if_t<std::is_same<IOKind, io_contiguous>::value> = 0
     >
-    static inline error read_num(RdrInput& is, number& out_val)
+    static inline error read_num(MyInput& is, number& out_val)
     {
+
         constexpr auto ff_options = ffopts<AllowInfNan>();
 
         fast_float::parsed_number_string<CharT> ps =
@@ -665,14 +736,14 @@ private:
         else if (res.ec == std::errc::result_out_of_range)
             return ERROR_out_of_range;
         else
-            return ERROR_invalid_arg;
+            return ERROR_invalid_num;
     }
 
     template <
-        bool AllowInfNan = false, typename MyInputKind = InputKind,
-        iutil::enable_if_t<!std::is_same<MyInputKind, io_contiguous>::value> = 0
+        bool AllowInfNan = false, typename IOKind = InputKind,
+        iutil::enable_if_t<!std::is_same<IOKind, io_contiguous>::value> = 0
     >
-    static inline error read_num(RdrInput& is, number& out_value)
+    static inline error read_num(MyInput& is, number& out_value)
     {
         out_str buf(iutil::max_outchars10<double>::value);
         // todo: this is slow. ideally we should parse only once
@@ -683,8 +754,8 @@ private:
         return read_num<AllowInfNan, io_contiguous>(ibuf, out_value);
     }
 
-    template <std::size_t N, typename MyInputKind>
-    static inline bool do_try_consume_str(RdrInput& is, const CharT(&str)[N], MyInputKind)
+    template <std::size_t N, typename IOKind>
+    static inline bool do_try_consume_str(MyInput& is, const CharT(&str)[N], IOKind)
     {
         static_assert(N > 0, "");
 
@@ -695,7 +766,7 @@ private:
     }
 
     template <std::size_t N>
-    static inline bool do_try_consume_str(RdrInput& is, const CharT(&str)[N], io_contiguous)
+    static inline bool do_try_consume_str(MyInput& is, const CharT(&str)[N], io_contiguous)
     {
         static_assert(N > 0, "");
 
@@ -713,13 +784,13 @@ private:
     }
 
     template <std::size_t N>
-    static inline bool try_consume_str(RdrInput& is, const CharT(&str)[N])
+    static inline bool try_consume_str(MyInput& is, const CharT(&str)[N])
     {
         return do_try_consume_str(is, str, InputKind{});
     }
 
     // calling this instead of try_read_bool() generates better assembly
-    static inline int do_read_bool(RdrInput& is) noexcept(IsNoThrowInput)
+    static inline int do_read_bool(MyInput& is) noexcept(IsNoThrowInput)
     {
         // check true first! (if inrem < 4, compiler can skip checking false)
         return
@@ -728,20 +799,20 @@ private:
     }
 
     template <typename SiOutput>
-    static inline bool unescape(RdrInput& is, SiOutput& os)
+    static SIJSON_ALWAYS_INLINE bool unescape(MyInput& is, SiOutput& os)
     {
         is.take(); // skip '\'
         if (is.end())
             return false;
 
         auto c = is.peek();
-        if (c <= static_cast<CharT>(127) &&
-            iutil::unesc_ctrl_lut[ChTraits::to_int_type(c)] != 0)
+        auto uc = iutil::ctrl_lut(c);
+        if (uc != 0)
         {
-            os.put(iutil::unesc_ctrl_lut[ChTraits::to_int_type(c)]);
+            os.put(uc);
             is.take();
         }
-        else if (c == 0x75) // 'u' (unicode)
+        else if (c == CharT('u'))
         {
             is.take();
             if (!iutil::put_utf_unescape(is, os, InputKind{}))
@@ -752,7 +823,7 @@ private:
     }
 
     //template <typename SiOutput>
-    //static inline bool copy_escaped(RdrInput& is, SiOutput& os)
+    //static inline bool copy_escaped(MyInput& is, SiOutput& os)
     //{
     //    os.put(is.take()); // copy '\'
     //    if (is.end())
@@ -775,7 +846,7 @@ private:
     //}
 
     template <typename SiOutput>
-    static inline error read_str(RdrInput& is, SiOutput& os)
+    static inline error read_str(MyInput& is, SiOutput& os)
     {
         if (is.end() || is.peek() != 0x22) // '"'
             return ERROR_str_delim;
@@ -796,7 +867,7 @@ private:
     }
 
     template <typename SiOutput>
-    static inline error copy_str(RdrInput& is, SiOutput& os)
+    static inline error copy_str(MyInput& is, SiOutput& os)
     {
         if (is.end() || is.peek() != 0x22) // '"'
             return ERROR_str_delim;
@@ -831,11 +902,11 @@ private:
         return ERROR_none;
     }
 
-    template <typename SiOutput, typename MyInputKind>
-    static inline void copy_unesc_str_noquotes(RdrInput&, SiOutput&, MyInputKind) {}
+    template <typename SiOutput, typename IOKind>
+    static inline void copy_unesc_str_noquotes(MyInput&, SiOutput&, IOKind) {}
 
     template <typename SiOutput>
-    static inline void copy_unesc_str_noquotes(RdrInput& is, SiOutput& os, io_contiguous)
+    static inline void copy_unesc_str_noquotes(MyInput& is, SiOutput& os, io_contiguous)
     {
         auto n_in = sijson::inrem(is);
         auto* escp = ChTraits::find(is.ipcur(), n_in, 0x5c); // '\'
@@ -851,7 +922,7 @@ private:
     }
 
     template <typename SiOutput>
-    static inline error read_str_noquotes(RdrInput& is, SiOutput& os)
+    static inline error read_str_noquotes(MyInput& is, SiOutput& os)
     {
         while (true)
         {
@@ -868,7 +939,7 @@ private:
     }
 
     template <typename SiOutput>
-    static inline error do_copy_str_noquotes(RdrInput& is, SiOutput& os, io_contiguous)
+    static inline error do_copy_str_noquotes(MyInput& is, SiOutput& os, io_contiguous)
     {
         auto n = (std::size_t)(is.ipend() - is.ipcur());
         os.put_n(is.ipcur(), n);
@@ -877,7 +948,7 @@ private:
     }
 
     template <typename SiOutput>
-    static inline error do_copy_str_noquotes(RdrInput& is, SiOutput& os, io_basic)
+    static inline error do_copy_str_noquotes(MyInput& is, SiOutput& os, io_basic)
     {
         while (!is.end())
             os.put(is.take());
@@ -885,13 +956,13 @@ private:
     }
 
     template <typename SiOutput>
-    static inline error do_copy_str_noquotes(RdrInput& is, SiOutput& os, io_buffered)
+    static inline error do_copy_str_noquotes(MyInput& is, SiOutput& os, io_buffered)
     {
         return do_copy_str_noquotes(is, os, io_basic{});
     }
 
     template <typename SiOutput>
-    static inline error copy_str_noquotes(RdrInput& is, SiOutput& os)
+    static inline error copy_str_noquotes(MyInput& is, SiOutput& os)
     {
         return do_copy_str_noquotes(is, os, InputKind{});
     }
@@ -901,8 +972,8 @@ private:
         IntT Ubound = std::numeric_limits<IntT>::max()>
     inline IntT read_intg(const char* type_name = nullptr)
     {
-        bool eof = assume_no_ws ? m_is.end() : !skip_ws();
-        if (eof) goto fail;
+        if (!assumes_no_ws()) skip_ws();
+        if (m_is.end()) goto fail;
 
         IntT value;
         if (!do_read_intg<IntT, Lbound, Ubound>(m_is, value)) goto fail;
@@ -916,8 +987,8 @@ private:
         UintT Ubound = std::numeric_limits<UintT>::max()>
     inline UintT read_uintg(const char* type_name = nullptr)
     {
-        bool eof = assume_no_ws ? m_is.end() : !skip_ws();
-        if (eof) goto fail;
+        if (!assumes_no_ws()) skip_ws();
+        if (m_is.end()) goto fail;
 
         UintT value;
         if (!do_read_uintg(m_is, value)) goto fail;

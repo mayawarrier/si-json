@@ -23,7 +23,7 @@ class ifilestream
 public:
     using char_type = char;
     using size_type = std::size_t;
-    using input_kind = io_buffered;
+    using input_kind = io_basic;
 
 private:
     ifilestream(internal::file&& file, std::size_t bufsize) :

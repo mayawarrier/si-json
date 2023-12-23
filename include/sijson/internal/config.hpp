@@ -40,7 +40,7 @@
 #define SIJSON_EXC_STACKTRACE 0
 #endif
 
-//// Strenghten library i.e. always assert
+//// Strengthen library i.e. always assert
 ////
 //#ifndef SIJSON_CHECKED
 //#define SIJSON_CHECKED 0
@@ -233,13 +233,13 @@ void assert_fail(const char* src_loc, const char* msg)
 // Allow the use of SIMD instructions to improve performance.
 // Define the SIMD instruction set(s) available.
 //
-#if SIJSON_SSE2 || SIJSON_AVX2
-#define SIJSON_SIMD
+#if SIJSON_SSE2 || SIJSON_SSE42 || SIJSON_AVX2
+#define SIJSON_SIMD 1
 #endif
 
-
-#if SIJSON_AVX2 && !SIJSON_SSE2
+#if SIJSON_AVX2 && !(SIJSON_SSE2 || SIJSON_SSE42)
 #define SIJSON_SSE2 1
+#define SIJSON_SSE42
 #endif
 
 #if SIJSON_SSE2 && SIJSON_USE_FASTFLOAT
