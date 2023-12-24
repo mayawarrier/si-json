@@ -18,8 +18,8 @@ a.out
 a.out.js
 a.out.wasm
 main.s
-main.cpp
-test.json
+#main.cpp
+test.json # generated
 
 # wip
 encoding_old.hpp

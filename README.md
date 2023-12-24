@@ -17,5 +17,5 @@ Turns out this is a ridiculously difficult mandate for one person! (who knew?)
 
 I worked on this for 2 years in my free time. The features above are in various states of completion.
 
-`include/sijson/internal/core.hpp` contains many useful utilities to implement std library types, including an SSO string type. \
+[`internal/core.hpp`](https://github.com/mayawarrier/si-json/blob/main/include/sijson/internal/core.hpp) contains many useful utilities to implement std library types, including an SSO string type. \
 It also contains all core code required to properly support custom allocators and fancy pointers. Most objects in sijson fully support both.
