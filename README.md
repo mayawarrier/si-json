@@ -13,7 +13,6 @@ as well as be or support the following things:
 - Extensible interface (can implement your own input/output streams, readers/writers etc)
 - As fast as possible in the usual/common case.
 
-Turns out this is a ridiculously difficult mandate for one person! (who knew?)
 
 I worked on this for 2 years in my free time. The features above are in various states of completion.
 
